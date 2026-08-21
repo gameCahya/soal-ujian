@@ -68,7 +68,6 @@ export default function UsersAdminPage() {
   const [mataPelajaran, setMataPelajaran] = useState<{ id: string; nama: string }[]>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState("")
-  const [saving, setSaving] = useState(false)
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" | "info" } | null>(null)
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
@@ -125,19 +124,15 @@ export default function UsersAdminPage() {
     setLoading(false)
   }
 
-  const handleRoleChange = async (userId: string, newRole: string) => {
-    setSaving(true)
-    const { error } = await supabase
-      .from("profiles")
-      .update({ role: newRole, updated_at: new Date().toISOString() })
-      .eq("id", userId)
-    setSaving(false)
-    if (error) {
-      setToast({ message: "Error: " + error.message, type: "error" })
-    } else {
-      setToast({ message: "Role diperbarui!", type: "success" })
-      setUserList(prev => prev.map(u => u.id === userId ? { ...u, role: newRole } : u))
-    }
+  // Peran diturunkan dari LMS sejak identitas disatukan: psat.profiles adalah
+  // view, dan trigger INSTEAD OF-nya tidak menyalurkan kolom role ke mana pun.
+  // Menulisnya di sini akan "berhasil" tanpa mengubah apa pun, jadi jalurnya
+  // ditutup dan diganti keterangan.
+  const handleRoleChange = async () => {
+    setToast({
+      message: "Peran diatur dari LMS: Kelola Guru -> Soal PSAT (Tulis / Validasi).",
+      type: "error",
+    })
   }
 
   const openEditModal = async (u: UserRow) => {
@@ -341,6 +336,27 @@ export default function UsersAdminPage() {
         </div>
       </header>
 
+      {/* Keanggotaan PSAT sekarang datang dari LMS — tanpa keterangan ini,
+          tombol Tambah/Hapus di atas cuma akan memunculkan error tanpa sebab. */}
+      <div className="max-w-5xl mx-auto px-4 pt-4">
+        <div
+          className="text-sm"
+          style={{
+            padding: "12px 14px",
+            borderRadius: "12px",
+            border: "1.5px solid var(--pp-ink)",
+            backgroundColor: "var(--pp-lemon)",
+            color: "var(--pp-ink)",
+            lineHeight: 1.5,
+          }}
+        >
+          <strong>Akun dan peran dikelola di LMS.</strong> Buat atau nonaktifkan guru di LMS,
+          lalu nyalakan <em>Kelola Guru &rarr; Soal PSAT</em> — <em>Tulis</em> untuk penulis soal,
+          <em> Validasi</em> untuk validator. Halaman ini tinggal untuk melihat daftar dan
+          mengisi data per siklus (mapel, kelas, unit, rekening).
+        </div>
+      </div>
+
       {/* Back link */}
       <div className="max-w-5xl mx-auto px-4 pt-4 pb-1">
         <button
@@ -469,20 +485,20 @@ export default function UsersAdminPage() {
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex items-center justify-center gap-2">
-                          <select
-                            value={u.role}
-                            onChange={e => handleRoleChange(u.id, e.target.value)}
-                            disabled={saving || isSelf}
+                          <button
+                            type="button"
+                            onClick={handleRoleChange}
+                            title="Peran diatur dari LMS"
                             className="px-2 py-1 rounded-[8px] text-xs font-medium"
                             style={{
                               backgroundColor: "var(--pp-bg)",
-                              border: "1.5px solid var(--pp-ink)",
-                              color: "var(--pp-ink)",
-                              boxShadow: "1px 1px 0 0 var(--pp-ink)",
+                              border: "1.5px dashed var(--pp-muted)",
+                              color: "var(--pp-muted)",
+                              cursor: "help",
                             }}
                           >
-                            {ROLE_OPTIONS.map(r => <option key={r} value={r}>{r}</option>)}
-                          </select>
+                            dari LMS
+                          </button>
                           <button
                             onClick={() => openEditModal(u)}
                             className="flex items-center gap-1 px-2.5 py-1.5 rounded-[8px]"
@@ -568,11 +584,14 @@ export default function UsersAdminPage() {
                     <label className="block text-xs font-semibold mb-1.5 uppercase tracking-wide" style={{ color: "var(--pp-muted)" }}>Role</label>
                     <select
                       value={editForm.role}
-                      onChange={e => setEditForm(f => f ? { ...f, role: e.target.value } : f)}
-                      style={inputStyle}
+                      disabled
+                      style={{ ...inputStyle, opacity: 0.6, cursor: "not-allowed" }}
                     >
                       {ROLE_OPTIONS.map(r => <option key={r} value={r}>{r}</option>)}
                     </select>
+                    <p className="text-xs mt-1" style={{ color: "var(--pp-muted)" }}>
+                      Diatur dari LMS: Kelola Guru &rarr; Soal PSAT.
+                    </p>
                   </div>
 
                   {/* Nama */}

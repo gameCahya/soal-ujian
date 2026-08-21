@@ -10,7 +10,7 @@ import {
 
 export default function LoginPage() {
   const router = useRouter()
-  const [email, setEmail]             = useState("")
+  const [identitas, setIdentitas]      = useState("")
   const [password, setPassword]       = useState("")
   const [showPassword, setShowPassword] = useState(false)
   const [rememberMe, setRememberMe]   = useState(false)
@@ -22,6 +22,22 @@ export default function LoginPage() {
     setLoading(true)
     setError("")
 
+    // Sejak identitas PSAT disatukan dengan LMS, guru masuk memakai akun LMS —
+    // dan di LMS mereka mengenal dirinya lewat username, bukan email. Kalau yang
+    // diketik bukan email, tukar dulu jadi email lewat RPC yang sama dengan LMS.
+    let email = identitas.trim()
+    if (email && !email.includes("@")) {
+      const { data: fromUsername } = await supabase
+        .schema("public")
+        .rpc("get_email_by_username", { p_username: email })
+      if (!fromUsername) {
+        setError("Username tidak ditemukan.")
+        setLoading(false)
+        return
+      }
+      email = fromUsername as string
+    }
+
     const { error: signInError } = await supabase.auth.signInWithPassword({ email, password })
 
     void supabase.from("login_log").insert({
@@ -31,7 +47,7 @@ export default function LoginPage() {
     })
 
     if (signInError) {
-      setError("Email atau password salah.")
+      setError("Username/email atau password salah.")
       setLoading(false)
       return
     }
@@ -248,7 +264,7 @@ export default function LoginPage() {
                 Selamat datang kembali
               </h2>
               <p className="mb-7 mt-1.5" style={{ fontSize: "14px", color: "var(--pp-muted)" }}>
-                Masuk dengan akun PSAT yang sudah terdaftar.
+                Masuk memakai akun LMS Anda — username dan kata sandi yang sama.
               </p>
 
               <form onSubmit={handleLogin} className="space-y-4">
@@ -257,16 +273,16 @@ export default function LoginPage() {
                   <label className="block font-semibold uppercase mb-1.5" style={{
                     fontSize: "12px", color: "var(--pp-ink-2)", letterSpacing: "0.1em",
                   }}>
-                    Email
+                    Username atau Email
                   </label>
                   <div className="relative">
                     <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 pointer-events-none" style={{ color: "var(--pp-muted)" }} />
                     <input
-                      type="email"
-                      value={email}
-                      onChange={e => setEmail(e.target.value)}
-                      placeholder="nama.guru@alabidin.sch.id"
-                      autoComplete="email"
+                      type="text"
+                      value={identitas}
+                      onChange={e => setIdentitas(e.target.value)}
+                      placeholder="username LMS Anda"
+                      autoComplete="username"
                       spellCheck={false}
                       required
                       style={{

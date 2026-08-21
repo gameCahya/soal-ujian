@@ -112,8 +112,10 @@ export default function ProfilePage() {
       const { data: mapelData } = await supabase.from("mata_pelajaran").select("id, nama, kode").order("nama")
       if (mapelData) setMataPelajaran(mapelData)
 
-      const { data: profileData } = await supabase.from("profiles").select("*").eq("id", u.id).single()
-      if (!profileData) await supabase.from("profiles").insert({ id: u.id, email: u.email })
+      // Profil tidak lagi dibuat sendiri di sini — keanggotaan PSAT datang dari
+      // flag di LMS. Kalau kosong, dashboard yang menjelaskan sebabnya.
+      const { data: profileData } = await supabase.from("profiles").select("*").eq("id", u.id).maybeSingle()
+      if (!profileData) { router.push("/dashboard"); return }
 
       const userRole = profileData?.role || "guru"
       setRole(userRole)

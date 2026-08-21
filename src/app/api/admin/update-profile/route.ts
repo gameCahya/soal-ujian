@@ -34,15 +34,30 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "userId wajib diisi" }, { status: 400 })
   }
 
-  // Update tabel profiles
+  // Peran sekarang diturunkan dari LMS (role + flag is_penulis_soal /
+  // is_soal_validator), jadi mengirimnya ke sini tidak akan berpengaruh apa-apa.
+  // Ditolak terang-terangan supaya tidak terlihat "tersimpan" padahal tidak.
+  const { data: targetProfile } = await supabaseAdmin
+    .from("profiles")
+    .select("role")
+    .eq("id", userId)
+    .maybeSingle()
+
+  if (profileData.role && targetProfile && profileData.role !== targetProfile.role) {
+    return NextResponse.json(
+      { error: "Peran diatur dari LMS, bukan dari sini. Ubah lewat Kelola Guru → Soal PSAT." },
+      { status: 400 },
+    )
+  }
+
+  // psat.profiles adalah view: trigger INSTEAD OF menyalurkan nama ke
+  // public.profiles, dan no_hp/kelas ke psat.psat_guru_data.
   const { error: profileError } = await supabaseAdmin
     .from("profiles")
     .update({
       nama: profileData.nama,
       no_hp: profileData.no_hp,
-      role: profileData.role,
       kelas: profileData.kelas ?? null,
-      updated_at: new Date().toISOString(),
     })
     .eq("id", userId)
 

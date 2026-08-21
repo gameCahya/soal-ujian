@@ -59,6 +59,7 @@ export default function DashboardPage() {
   const router = useRouter()
   const [user, setUser]                         = useState<UserData | null>(null)
   const [hasProfile, setHasProfile]             = useState(false)
+  const [noAccess, setNoAccess]                 = useState(false)
   const [hasValidatorProfile, setHasValidatorProfile] = useState(false)
   const [hasMatrix, setHasMatrix]               = useState(false)
   const [submittedCount, setSubmittedCount]     = useState(0)
@@ -81,9 +82,14 @@ export default function DashboardPage() {
         .from("profiles").select("role").eq("id", u.id).maybeSingle()
       if (profileQueryError) console.error("Query profile error:", profileQueryError)
 
+      // Sejak identitas PSAT disatukan dengan LMS, keanggotaan ditentukan flag
+      // "Penulis Soal" yang dinyalakan admin di LMS — profil tidak lagi dibuat
+      // sendiri saat login pertama. Tanpa gerbang ini dashboard tetap terbuka
+      // tapi semua query balik kosong, dan guru tidak tahu kenapa.
       if (!profileData) {
-        const { error: insertError } = await supabase.from("profiles").insert({ id: u.id, email: u.email || "" })
-        if (insertError) console.error("Insert profile error:", insertError)
+        setNoAccess(true)
+        setLoading(false)
+        return
       }
 
       const { data: fullProfile } = await supabase
@@ -209,6 +215,51 @@ export default function DashboardPage() {
     if (blocked) { alert("Lengkapi data diri terlebih dahulu!"); return }
     if (requireMatrix && !hasMatrix) { alert("Selesaikan matrix terlebih dahulu sebelum input soal!"); return }
     router.push(path)
+  }
+
+  /* ── Belum diberi akses PSAT ── */
+  if (noAccess) {
+    return (
+      <div className="min-h-screen flex items-center justify-center px-5" style={{ backgroundColor: "var(--pp-bg)" }}>
+        <div
+          className="w-full max-w-[420px] text-center"
+          style={{
+            padding: "32px 28px",
+            borderRadius: "18px",
+            border: "1.5px solid var(--pp-ink)",
+            backgroundColor: "var(--pp-card)",
+            boxShadow: "5px 5px 0 0 var(--pp-ink)",
+          }}
+        >
+          <Lock className="mx-auto mb-4 w-8 h-8" style={{ color: "var(--pp-ink)" }} />
+          <div className="font-display font-semibold text-xl mb-2" style={{ color: "var(--pp-ink)" }}>
+            Akun Anda belum diberi akses
+          </div>
+          <p className="mb-6" style={{ color: "var(--pp-muted)", fontSize: "14px", lineHeight: 1.55 }}>
+            Login Anda berhasil, tetapi akun ini belum ditandai sebagai penulis soal.
+            Minta admin menyalakan <strong>Soal PSAT &rarr; Tulis</strong> pada data guru Anda di LMS,
+            lalu masuk lagi.
+          </p>
+          <button
+            onClick={handleLogout}
+            style={{
+              width: "100%",
+              padding: "12px 16px",
+              borderRadius: "14px",
+              border: "1.5px solid var(--pp-ink)",
+              backgroundColor: "var(--pp-card)",
+              fontSize: "14px",
+              fontWeight: 600,
+              color: "var(--pp-ink)",
+              cursor: "pointer",
+              fontFamily: "inherit",
+            }}
+          >
+            Keluar
+          </button>
+        </div>
+      </div>
+    )
   }
 
   /* ── Loading ── */
