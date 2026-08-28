@@ -1,5 +1,6 @@
 import { supabase } from "@/lib/supabase"
 import { ArrowLeft, BookOpen, FileQuestion } from "lucide-react"
+import { labelUjian, type UjianPsat } from "@/lib/ujian"
 
 export const revalidate = 300
 
@@ -24,16 +25,17 @@ const KESULITAN_COLOR: Record<string, { bg: string; text: string }> = {
   sulit:  { bg: "#fef2f2", text: "#dc2626" },
 }
 
-export default async function PublikSoalPage({ params }: { params: Promise<{ mapelId: string }> }) {
-  const { mapelId } = await params
+export default async function PublikSoalPage({ params }: { params: Promise<{ ujianId: string }> }) {
+  const { ujianId } = await params
 
-  const [soalRes, mapelRes] = await Promise.all([
-    supabase.rpc("get_public_soal_by_mapel", { p_mapel_id: mapelId }),
-    supabase.from("mata_pelajaran").select("nama, kode").eq("id", mapelId).maybeSingle(),
+  const [soalRes, ujianRes] = await Promise.all([
+    supabase.rpc("get_public_soal_by_ujian", { p_ujian_id: ujianId }),
+    supabase.rpc("get_ujian_psat"),
   ])
 
   const soalList: Soal[] = (soalRes.data as Soal[]) ?? []
-  const mapelNama = mapelRes.data?.nama ?? "Mata Pelajaran"
+  const ujian = ((ujianRes.data as UjianPsat[]) ?? []).find(u => u.ujian_id === ujianId)
+  const mapelNama = ujian ? labelUjian(ujian) : "Mata Pelajaran"
 
   // Group by bab
   const byBab: Record<string, Soal[]> = {}

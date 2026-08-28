@@ -7,8 +7,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "db:migrate": "psql \"$DATABASE_URL\" -v ON_ERROR_STOP=1 -f supabase/migrations/20260503000000_init_psat_schema.sql",
-    "db:gen-types": "supabase gen types typescript --project-id \"$SUPABASE_PROJECT_ID\" --schema psat > src/lib/database.types.ts"
+    "db:migrate": "sh -c 'for f in \"$@\"; do echo \"-> $f\"; psql \"$DATABASE_URL\" -v ON_ERROR_STOP=1 -f \"$f\" || exit 1; done' --",
+    "db:gen-types": "supabase gen types typescript --project-id \"$SUPABASE_PROJECT_ID\" --schema psat > src/lib/database.types.ts",
+    "db:migrate:ujian": "pnpm db:migrate supabase/migrations/20260827000001_ujian_scope.sql supabase/migrations/20260827000002_backfill_ujian_id.sql supabase/migrations/20260827000003_public_rpcs_ujian.sql"
   },
   "dependencies": {
     "@radix-ui/react-avatar": "^1.1.11",
