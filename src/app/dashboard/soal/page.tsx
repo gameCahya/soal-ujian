@@ -12,6 +12,10 @@ import DownloadDropdown from "@/components/DownloadDropdown"
 import { sampleSoalByMatrix } from "@/lib/downloadSoal"
 import { driver } from "driver.js"
 import "driver.js/dist/driver.css"
+import { ambilTugasMenulis, labelUjian, pesanError, type TugasMenulis } from "@/lib/ujian"
+
+/** Ujian yang sedang dikerjakan, dibagi dengan halaman matrix. */
+const UJIAN_KEY = "psat_ujian_id"
 
 interface BabMatrix {
   bab_id_text: string
@@ -94,6 +98,8 @@ export default function SoalPage() {
   const router = useRouter()
   const [user, setUser] = useState<any>(null)
   const [matrixData, setMatrixData] = useState<BabMatrix[]>([])
+  const [tugasList, setTugasList] = useState<TugasMenulis[]>([])
+  const [tugasAktif, setTugasAktif] = useState<TugasMenulis | null>(null)
   const [soalStats, setSoalStats] = useState<Record<string, number>>({})
   const [soalList, setSoalList] = useState<any[]>([])
   const [selectedBab, setSelectedBab] = useState("")
@@ -130,6 +136,50 @@ export default function SoalPage() {
   const [batchSaving, setBatchSaving] = useState(false)
   const [batchPasteText, setBatchPasteText] = useState("")
 
+  /** Pindah ke satu tugas: muat matrix, bobot, dan soal milik ujian itu. */
+  const pilihTugas = async (uid: string, tugas: TugasMenulis) => {
+    setTugasAktif(tugas)
+    localStorage.setItem(UJIAN_KEY, tugas.ujian_id)
+    setKelasGuru(tugas.level ? `Kelas ${tugas.level}` : "")
+    setMapelNama(tugas.mapel_nama || tugas.ujian_nama)
+
+    const { data: matrixRows } = await supabase
+      .from("psat_matrix_input")
+      .select("bab_id_text,data")
+      .eq("profile_id", uid)
+      .eq("ujian_id", tugas.ujian_id)
+      .eq("is_submitted", true)
+
+    if (!matrixRows || matrixRows.length === 0) {
+      setToast({ message: "Silakan submit matrix terlebih dahulu", type: "error" })
+      setTimeout(() => router.push("/dashboard/matrix"), 1500)
+      return
+    }
+
+    setMatrixData(matrixRows as BabMatrix[])
+    setExpandedBabs(new Set(matrixRows.map((r: any) => r.bab_id_text)))
+
+    const firstBab = matrixRows[0].bab_id_text
+    setActiveBab(firstBab)
+    setSelectedBab(firstBab)
+
+    if (tugas.psat_mapel_id) {
+      setSelectedMapelId(tugas.psat_mapel_id)
+
+      const { data: bobotRows } = await supabase
+        .from("bobot_config")
+        .select("tipe, kesulitan, bobot")
+        .eq("mapel_id", tugas.psat_mapel_id)
+
+      const cfg: BobotConfig = {}
+      bobotRows?.forEach((r: any) => { cfg[`${r.tipe}_${r.kesulitan}`] = Number(r.bobot) })
+      setBobotConfig(cfg)
+      setBobot(cfg[`pilgan_mudah`] ?? BOBOT_DEFAULT["pilgan"]?.["mudah"] ?? 1.0)
+    }
+
+    await reloadSoal(uid, tugas.ujian_id)
+  }
+
   useEffect(() => {
     async function load() {
       const { data: { user: u } } = await supabase.auth.getUser()
@@ -138,73 +188,47 @@ export default function SoalPage() {
 
       const { data: profile } = await supabase
         .from("profiles")
-        .select("nama, kelas")
+        .select("nama")
         .eq("id", u.id)
         .maybeSingle()
-      if (profile) {
-        setNamaGuru(profile.nama || "")
-        const angka = profile.kelas ? profile.kelas.replace(/\D/g, "") : ""
-        setKelasGuru(angka ? `Kelas ${angka}` : (profile.kelas || ""))
+      if (profile) setNamaGuru(profile.nama || "")
+
+      // Ujian menentukan mapel DAN kelas; keduanya tidak lagi ditebak dari profil
+      let tugas: TugasMenulis[] = []
+      try {
+        tugas = await ambilTugasMenulis()
+      } catch (e) {
+        setToast({ message: "Gagal memuat tugas menulis: " + pesanError(e), type: "error" })
+        setLoading(false)
+        return
       }
+      setTugasList(tugas)
 
-      const { data: matrixRows } = await supabase
-        .from("psat_matrix_input")
-        .select("bab_id_text,data")
-        .eq("profile_id", u.id)
-        .eq("is_submitted", true)
-
-      if (!matrixRows || matrixRows.length === 0) {
-        setToast({ message: "Silakan submit matrix terlebih dahulu", type: "error" })
-        setTimeout(() => router.push("/dashboard/matrix"), 1500)
+      if (tugas.length === 0) {
+        setToast({ message: "Belum ada tugas menulis untuk Anda", type: "error" })
+        setTimeout(() => router.push("/dashboard"), 1500)
         return
       }
 
-      setMatrixData(matrixRows as BabMatrix[])
-      setExpandedBabs(new Set(matrixRows.map((r: any) => r.bab_id_text)))
-
-      const firstBab = matrixRows[0].bab_id_text
-      setActiveBab(firstBab)
-      setSelectedBab(firstBab)
-
-      const { data: guruData } = await supabase
-        .from("psat_guru_data")
-        .select("mapel_id")
-        .eq("profile_id", u.id)
-        .maybeSingle()
-      if (guruData?.mapel_id) {
-        setSelectedMapelId(guruData.mapel_id)
-
-        const { data: mp } = await supabase
-          .from("mata_pelajaran")
-          .select("nama")
-          .eq("id", guruData.mapel_id)
-          .single()
-        if (mp) setMapelNama(mp.nama)
-
-        const { data: bobotRows } = await supabase
-          .from("bobot_config")
-          .select("tipe, kesulitan, bobot")
-          .eq("mapel_id", guruData.mapel_id)
-
-        if (bobotRows && bobotRows.length > 0) {
-          const cfg: BobotConfig = {}
-          bobotRows.forEach((r: any) => { cfg[`${r.tipe}_${r.kesulitan}`] = Number(r.bobot) })
-          setBobotConfig(cfg)
-          setBobot(cfg[`pilgan_mudah`] ?? BOBOT_DEFAULT["pilgan"]?.["mudah"] ?? 1.0)
-        }
-      }
-
-      await reloadSoal(u.id)
+      const tersimpan = localStorage.getItem(UJIAN_KEY)
+      const aktif = tugas.find(t => t.ujian_id === tersimpan) ?? tugas[0]
+      await pilihTugas(u.id, aktif)
       setLoading(false)
     }
     load()
+    // pilihTugas sengaja tidak masuk deps: efek ini hanya untuk pemuatan awal
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router])
 
-  const reloadSoal = async (uid: string): Promise<Record<string, number>> => {
+  const reloadSoal = async (uid: string, ujianId?: string): Promise<Record<string, number>> => {
+    // Tanpa cakupan ujian, soal siklus lama ikut terhitung ke slot siklus ini
+    const idUjian = ujianId ?? tugasAktif?.ujian_id
+    if (!idUjian) return {}
     const { data } = await supabase
       .from("bank_soal")
       .select("id,pertanyaan,tipe,tingkat_kesulitan,bobot,bab_id_text,created_at,pilihan,pilihan_gambar,status,revision_notes,highlights")
       .eq("guru_id", uid)
+      .eq("ujian_id", idUjian)
       .order("created_at", { ascending: true })
 
     const stats: Record<string, number> = {}
@@ -377,6 +401,7 @@ export default function SoalPage() {
         pertanyaan,
         tipe: selectedTipe,
         bab_id_text: selectedBab,
+        ujian_id: tugasAktif?.ujian_id ?? null,
         mata_pelajaran_id: selectedMapelId,
         level: selectedKesulitan,
         bobot,
@@ -393,6 +418,7 @@ export default function SoalPage() {
         tipe: selectedTipe,
         guru_id: user.id,
         bab_id_text: selectedBab,
+        ujian_id: tugasAktif?.ujian_id ?? null,
         mata_pelajaran_id: selectedMapelId,
         level: selectedKesulitan,
         bobot,
@@ -497,6 +523,7 @@ export default function SoalPage() {
       .from("bank_soal")
       .update({ status: "submitted", updated_at: new Date().toISOString() })
       .eq("guru_id", user.id)
+      .eq("ujian_id", tugasAktif?.ujian_id ?? "")
       .in("status", ["draft", "needs_revision"])
     setSaving(false)
     if (error) {
@@ -582,6 +609,7 @@ export default function SoalPage() {
         tingkat_kesulitan: item.tingkat_kesulitan,
         level: item.tingkat_kesulitan,
         bab_id_text: item.bab_id_text,
+        ujian_id: tugasAktif?.ujian_id ?? null,
         mata_pelajaran_id: selectedMapelId,
         guru_id: user.id,
         bobot: bobotVal,
@@ -812,9 +840,9 @@ export default function SoalPage() {
               <div className="font-display font-semibold text-base leading-tight" style={{ color: "var(--pp-ink)" }}>
                 Input Soal
               </div>
-              {mapelNama && (
+              {tugasAktif && (
                 <div className="text-xs leading-tight truncate" style={{ color: "var(--pp-muted)" }}>
-                  {mapelNama}
+                  {labelUjian(tugasAktif)}
                 </div>
               )}
             </div>
@@ -896,6 +924,39 @@ export default function SoalPage() {
           Kembali ke Dashboard
         </button>
       </div>
+
+      {/* Pindah antar tugas tanpa memuat ulang halaman */}
+      {tugasList.length > 1 && (
+        <div className="max-w-7xl mx-auto px-4 pt-2 flex flex-wrap gap-2">
+          {tugasList.map(t => {
+            const aktif = t.ujian_id === tugasAktif?.ujian_id
+            return (
+              <button
+                key={t.ujian_id}
+                onClick={async () => {
+                  if (aktif || !user) return
+                  setLoading(true)
+                  await pilihTugas(user.id, t)
+                  setLoading(false)
+                }}
+                className="text-sm"
+                style={{
+                  backgroundColor: aktif ? "var(--pp-ink)" : "var(--pp-card)",
+                  color: aktif ? "#fff" : "var(--pp-ink)",
+                  border: "1.5px solid var(--pp-ink)",
+                  borderRadius: 999,
+                  padding: "6px 14px",
+                  fontWeight: 600,
+                  boxShadow: aktif ? "none" : "2px 2px 0 0 var(--pp-ink)",
+                  cursor: aktif ? "default" : "pointer",
+                }}
+              >
+                {labelUjian(t)}
+              </button>
+            )
+          })}
+        </div>
+      )}
 
       <div className="max-w-7xl mx-auto px-4 py-4 pb-12 flex gap-5 items-start">
 

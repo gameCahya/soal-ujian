@@ -8,6 +8,18 @@ import { supabase } from "@/lib/supabase"
 import Toast from "@/components/Toast"
 import { driver } from "driver.js"
 import "driver.js/dist/driver.css"
+import {
+  TIPE_OPTIONS,
+  KESULITAN_OPTIONS,
+  TIPE_LABELS,
+  labelUjian,
+  ambilTugasMenulis,
+  ambilPatokanUjian,
+  ambilBabUjian,
+  pesanError,
+  type TugasMenulis,
+  type BabUjian,
+} from "@/lib/ujian"
 
 interface Bab {
   id: string
@@ -15,14 +27,8 @@ interface Bab {
   is_submitted: boolean
 }
 
-const TIPE_OPTIONS = ["pilgan", "ceklist", "isian_singkat", "essay"]
-const TIPE_LABELS: Record<string, string> = {
-  pilgan: "Pilgan",
-  ceklist: "Ceklist",
-  isian_singkat: "Isian Singkat",
-  essay: "Essay",
-}
-const KESULITAN_OPTIONS = ["mudah", "sedang", "sulit"]
+/** Ujian yang sedang dikerjakan, dibagi antar halaman lewat localStorage. */
+const UJIAN_KEY = "psat_ujian_id"
 
 const INITIAL_DATA: Record<string, number> = {}
 TIPE_OPTIONS.forEach(t => KESULITAN_OPTIONS.forEach(k => {
@@ -53,6 +59,9 @@ export default function MatrixPage() {
   const [editBabName, setEditBabName] = useState("")
   const [guruNama, setGuruNama] = useState("")
   const [guruMapelNama, setGuruMapelNama] = useState("")
+  const [tugasList, setTugasList] = useState<TugasMenulis[]>([])
+  const [tugasAktif, setTugasAktif] = useState<TugasMenulis | null>(null)
+  const [babSaran, setBabSaran] = useState<BabUjian[]>([])
   const [requestingEdit, setRequestingEdit] = useState(false)
   const [submitPressed, setSubmitPressed] = useState(false)
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" | "info" } | null>(null)
@@ -111,11 +120,12 @@ export default function MatrixPage() {
     driverObj.drive()
   }
 
-  const loadBabsFromDB = async (userId: string, mapelId: string | null = null) => {
+  const loadBabsFromDB = async (userId: string, ujianId: string, mapelId: string | null = null) => {
     const { data } = await supabase
       .from("psat_matrix_input")
       .select("bab_id_text, data, is_submitted")
       .eq("profile_id", userId)
+      .eq("ujian_id", ujianId)
 
     if (data && data.length > 0) {
       const dataMap: Record<string, Record<string, number>> = {}
@@ -130,12 +140,34 @@ export default function MatrixPage() {
     } else {
       const defaultName = "Bab 1"
       await supabase.from("psat_matrix_input").insert({
-        profile_id: userId, mapel_id: mapelId,
+        profile_id: userId, mapel_id: mapelId, ujian_id: ujianId,
         bab_id_text: defaultName, data: { ...INITIAL_DATA }, is_submitted: false,
       })
       matrixDataRef.current = { [defaultName]: { ...INITIAL_DATA } }
       setMatrixData({ [defaultName]: { ...INITIAL_DATA } })
       setBabs([{ id: defaultName, nama_bab: defaultName, is_submitted: false }])
+    }
+  }
+
+  /** Pindah ke satu tugas: muat bab, target, dan saran bab milik ujian itu. */
+  const pilihTugas = async (userId: string, tugas: TugasMenulis) => {
+    setTugasAktif(tugas)
+    setGuruMapelId(tugas.psat_mapel_id)
+    setGuruMapelNama(tugas.mapel_nama || tugas.ujian_nama)
+    localStorage.setItem(UJIAN_KEY, tugas.ujian_id)
+
+    await loadBabsFromDB(userId, tugas.ujian_id, tugas.psat_mapel_id)
+
+    try {
+      setPatokan(await ambilPatokanUjian(tugas.ujian_id))
+    } catch {
+      setPatokan({ ...INITIAL_DATA })
+    }
+
+    try {
+      setBabSaran(await ambilBabUjian(tugas.ujian_id))
+    } catch {
+      setBabSaran([])
     }
   }
 
@@ -147,7 +179,7 @@ export default function MatrixPage() {
 
       const { data: profileData } = await supabase
         .from("profiles")
-        .select("nama, no_hp, kelas")
+        .select("nama, no_hp")
         .eq("id", u.id)
         .maybeSingle()
 
@@ -157,12 +189,12 @@ export default function MatrixPage() {
         .eq("profile_id", u.id)
         .maybeSingle()
 
+      // Mapel & kelas tidak lagi diisi guru — keduanya datang dari penugasan
+      // di LMS. Yang tersisa untuk dilengkapi sendiri hanya data honor.
       const missing: string[] = []
       if (!profileData?.nama || profileData.nama === u.id) missing.push("Nama")
       if (!profileData?.no_hp) missing.push("No HP")
-      if (!profileData?.kelas) missing.push("Kelas")
       if (!guruData?.unit_sekolah) missing.push("Unit Sekolah")
-      if (!guruData?.mapel_id) missing.push("Mata Pelajaran")
       if (!guruData?.bank) missing.push("Bank")
       if (!guruData?.no_rekening) missing.push("No Rekening")
 
@@ -174,44 +206,25 @@ export default function MatrixPage() {
 
       setGuruNama(profileData?.nama || "")
 
-      const mapelId = guruData?.mapel_id ?? null
-      setGuruMapelId(mapelId)
+      let tugas: TugasMenulis[] = []
+      try {
+        tugas = await ambilTugasMenulis()
+      } catch (e) {
+        showToast("Gagal memuat tugas menulis: " + pesanError(e), "error")
+        setLoading(false)
+        return
+      }
+      setTugasList(tugas)
 
-      if (mapelId) {
-        const { data: mapelRow } = await supabase
-          .from("mata_pelajaran")
-          .select("nama")
-          .eq("id", mapelId)
-          .maybeSingle()
-        setGuruMapelNama((mapelRow as any)?.nama || "")
+      if (tugas.length === 0) {
+        setLoading(false)
+        return
       }
 
-      await loadBabsFromDB(u.id, mapelId)
-
-      if (mapelId) {
-        const { data: patokanRows } = await supabase
-          .from("psat_patokan_soal")
-          .select("*")
-          .eq("mapel_id", mapelId)
-          .order("created_at", { ascending: false })
-          .limit(1)
-
-        const pd = patokanRows?.[0]
-        if (pd) {
-          const p: Record<string, number> = {}
-          const tipes = (pd.tipe || "").split(",")
-          const tingkatans = (pd.tingkat_kesulitan || "").split(",")
-          const keluarArr = (pd.keluar || "").split(",")
-          const bankArr = (pd.bank || "").split(",")
-          let i = 0
-          tipes.forEach((t: string) => tingkatans.forEach((k: string) => {
-            p[`${t}_${k}_keluar`] = parseInt(keluarArr[i]) || 0
-            p[`${t}_${k}_bank`] = parseInt(bankArr[i]) || 0
-            i++
-          }))
-          setPatokan({ ...INITIAL_DATA, ...p })
-        }
-      }
+      // Ingat pilihan terakhir supaya pindah halaman tidak mereset konteks
+      const tersimpan = localStorage.getItem(UJIAN_KEY)
+      const terpilih = tugas.find(t => t.ujian_id === tersimpan) ?? tugas[0]
+      await pilihTugas(u.id, terpilih)
       setLoading(false)
       if (!localStorage.getItem("matrix_tour_done")) {
         localStorage.setItem("matrix_tour_done", "1")
@@ -219,6 +232,8 @@ export default function MatrixPage() {
       }
     }
     load()
+    // pilihTugas sengaja tidak masuk deps: efek ini hanya untuk pemuatan awal
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router])
 
   const setMatrixDataSync = (newData: Record<string, Record<string, number>>) => {
@@ -262,8 +277,9 @@ export default function MatrixPage() {
 
   const handleAddBab = async () => {
     if (!newBabName.trim() || !user) return
+    if (!tugasAktif) return
     const { error } = await supabase.from("psat_matrix_input").insert({
-      profile_id: user.id, mapel_id: guruMapelId,
+      profile_id: user.id, mapel_id: guruMapelId, ujian_id: tugasAktif.ujian_id,
       bab_id_text: newBabName.trim(), data: { ...INITIAL_DATA }, is_submitted: false,
     })
     if (error) { showToast("Error: " + error.message, "error"); return }
@@ -277,7 +293,7 @@ export default function MatrixPage() {
     if (babs.find(b => b.id === babId)?.is_submitted) return
     if (!confirm(`Hapus "${babId}"? Data matrix akan hilang.`)) return
     const { error } = await supabase.from("psat_matrix_input").delete()
-      .eq("profile_id", user.id).eq("bab_id_text", babId)
+      .eq("profile_id", user.id).eq("ujian_id", tugasAktif?.ujian_id ?? "").eq("bab_id_text", babId)
     if (error) { showToast("Error: " + error.message, "error"); return }
     setBabs(prev => prev.filter(b => b.id !== babId))
     const newData = { ...matrixDataRef.current }
@@ -291,7 +307,7 @@ export default function MatrixPage() {
     }
     await supabase.from("psat_matrix_input")
       .update({ bab_id_text: editBabName.trim(), updated_at: new Date().toISOString() })
-      .eq("profile_id", user.id).eq("bab_id_text", oldId)
+      .eq("profile_id", user.id).eq("ujian_id", tugasAktif?.ujian_id ?? "").eq("bab_id_text", oldId)
     const newData = { ...matrixDataRef.current }
     newData[editBabName.trim()] = newData[oldId]
     delete newData[oldId]
@@ -319,35 +335,35 @@ export default function MatrixPage() {
     if (!user || !matrixDataRef.current[babId]) return
     await supabase.from("psat_matrix_input")
       .update({ data: matrixDataRef.current[babId], updated_at: new Date().toISOString() })
-      .eq("profile_id", user.id).eq("bab_id_text", babId)
+      .eq("profile_id", user.id).eq("ujian_id", tugasAktif?.ujian_id ?? "").eq("bab_id_text", babId)
   }
 
   const handleSubmitAll = async () => {
-    if (!user) return
+    if (!user || !tugasAktif) return
     const errors = validateAll()
     if (errors.length > 0) { showToast("Belum sesuai patokan: " + errors[0], "error"); return }
     setSaving(true)
     for (const bab of babs.filter(b => !b.is_submitted)) {
       await supabase.from("psat_matrix_input")
         .update({ data: matrixDataRef.current[bab.id], is_submitted: true, updated_at: new Date().toISOString() })
-        .eq("profile_id", user.id).eq("bab_id_text", bab.id)
+        .eq("profile_id", user.id).eq("ujian_id", tugasAktif.ujian_id).eq("bab_id_text", bab.id)
     }
     setSaving(false)
-    await loadBabsFromDB(user.id)
+    await loadBabsFromDB(user.id, tugasAktif.ujian_id, tugasAktif.psat_mapel_id)
     showToast("Semua matrix berhasil disubmit!", "success")
   }
 
   const handleRequestEdit = async () => {
-    if (!user || !guruMapelId) return
+    if (!user || !tugasAktif) return
     setRequestingEdit(true)
     try {
-      const [{ data: profileData }, { data: mapelRow }, { data: { session } }] = await Promise.all([
+      const [{ data: profileData }, { data: { session } }] = await Promise.all([
         supabase.from("profiles").select("nama").eq("id", user.id).maybeSingle(),
-        supabase.from("mata_pelajaran").select("nama").eq("id", guruMapelId).maybeSingle(),
         supabase.auth.getSession(),
       ])
-      const namaGuru = (profileData as any)?.nama || guruNama || "Guru"
-      const namaMapel = (mapelRow as any)?.nama || guruMapelNama || "-"
+      const namaGuru = (profileData as { nama?: string } | null)?.nama || guruNama || "Guru"
+      // Sebut kelasnya juga — admin bisa punya beberapa permintaan dari guru yang sama
+      const namaMapel = labelUjian(tugasAktif)
 
       await fetch("/api/notifications/whatsapp", {
         method: "POST",
@@ -371,6 +387,46 @@ export default function MatrixPage() {
   if (loading) return (
     <div style={{ backgroundColor: "var(--pp-bg)", minHeight: "100vh" }} className="flex items-center justify-center">
       <div className="font-display text-xl" style={{ color: "var(--pp-ink-2)" }}>Memuat...</div>
+    </div>
+  )
+
+  // Tanpa penugasan di LMS tidak ada matrix yang bisa diisi — dan guru tidak
+  // bisa menyelesaikannya sendiri, jadi arahkan ke orang yang bisa.
+  if (tugasList.length === 0) return (
+    <div style={{ backgroundColor: "var(--pp-bg)", minHeight: "100vh" }} className="flex items-center justify-center px-4">
+      <div
+        className="text-center px-6 py-12 max-w-lg"
+        style={{
+          backgroundColor: "var(--pp-card)",
+          border: "1.5px solid var(--pp-ink)",
+          borderRadius: 22,
+          boxShadow: "6px 6px 0 0 var(--pp-ink)",
+        }}
+      >
+        <div className="font-display font-semibold text-lg mb-2" style={{ color: "var(--pp-ink)" }}>
+          Belum ada tugas menulis
+        </div>
+        <p className="text-sm mb-5" style={{ color: "var(--pp-muted)" }}>
+          Matrix diisi per ujian. Anda akan melihat daftarnya di sini setelah super admin
+          membuat ujian untuk siklus yang aktif <strong>dan</strong> Anda tercatat mengampu
+          mata pelajaran serta kelasnya di LMS.
+        </p>
+        <button
+          onClick={() => router.push("/dashboard")}
+          className="inline-flex items-center gap-1.5 text-sm font-semibold"
+          style={{
+            backgroundColor: "var(--pp-lemon)",
+            color: "var(--pp-ink)",
+            border: "1.5px solid var(--pp-ink)",
+            borderRadius: 12,
+            padding: "8px 16px",
+            boxShadow: "3px 3px 0 0 var(--pp-ink)",
+          }}
+        >
+          <ArrowLeft className="w-4 h-4" />
+          Kembali ke Dashboard
+        </button>
+      </div>
     </div>
   )
 
@@ -400,9 +456,9 @@ export default function MatrixPage() {
               <div className="font-display font-semibold text-base leading-tight truncate" style={{ color: "var(--pp-ink)" }}>
                 Input Matrix
               </div>
-              {guruMapelNama && (
+              {tugasAktif && (
                 <div className="text-xs leading-tight truncate" style={{ color: "var(--pp-muted)" }}>
-                  {guruMapelNama}
+                  {labelUjian(tugasAktif)}
                 </div>
               )}
             </div>
@@ -483,6 +539,45 @@ export default function MatrixPage() {
           Kembali ke Dashboard
         </button>
       </div>
+
+      {/* Guru bisa mengampu lebih dari satu mapel/kelas — satu matrix per ujian */}
+      {tugasList.length > 1 && (
+        <div className="max-w-5xl mx-auto px-4 pt-2">
+          <div className="text-xs font-semibold mb-1.5" style={{ color: "var(--pp-muted)" }}>
+            Tugas menulis Anda
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {tugasList.map(t => {
+              const aktif = t.ujian_id === tugasAktif?.ujian_id
+              return (
+                <button
+                  key={t.ujian_id}
+                  onClick={async () => {
+                    if (aktif || !user) return
+                    setLoading(true)
+                    await pilihTugas(user.id, t)
+                    setLoading(false)
+                  }}
+                  className="flex items-center gap-1.5 text-sm"
+                  style={{
+                    backgroundColor: aktif ? "var(--pp-ink)" : "var(--pp-card)",
+                    color: aktif ? "#fff" : "var(--pp-ink)",
+                    border: "1.5px solid var(--pp-ink)",
+                    borderRadius: 999,
+                    padding: "6px 14px",
+                    fontWeight: 600,
+                    boxShadow: aktif ? "none" : "2px 2px 0 0 var(--pp-ink)",
+                    cursor: aktif ? "default" : "pointer",
+                  }}
+                >
+                  {labelUjian(t)}
+                  {t.matrix_submitted && <Check className="w-3.5 h-3.5" />}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      )}
 
       <main className="max-w-5xl mx-auto px-4 py-4 pb-12 space-y-5">
 
@@ -663,9 +758,16 @@ export default function MatrixPage() {
             {!babs.every(b => b.is_submitted) && (
               isAdding ? (
                 <div className="flex items-center gap-1.5">
+                  {/* Saran nama bab dari LMS — tetap boleh diketik bebas */}
+                  <datalist id="bab-saran">
+                    {babSaran
+                      .filter(b => !babs.some(x => x.id === b.nama_bab))
+                      .map(b => <option key={b.bab_id} value={b.nama_bab} />)}
+                  </datalist>
                   <input
                     autoFocus
                     type="text"
+                    list="bab-saran"
                     value={newBabName}
                     onChange={e => setNewBabName(e.target.value)}
                     onKeyDown={e => e.key === "Enter" && handleAddBab()}

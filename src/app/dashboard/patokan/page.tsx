@@ -3,30 +3,28 @@
 import React, { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { supabase } from "@/lib/supabase"
-import { Copy, ArrowLeft, Save, RotateCcw } from "lucide-react"
+import { Copy, ArrowLeft, Save, RotateCcw, Inbox } from "lucide-react"
 import ThemeToggle from "@/components/ThemeToggle"
 import Toast from "@/components/Toast"
+import {
+  TIPE_OPTIONS,
+  KESULITAN_OPTIONS,
+  TIPE_LABELS,
+  KESULITAN_LABELS,
+  gridKosong,
+  labelUjian,
+  ambilUjianAktif,
+  simpanPatokanUjian,
+  validasiGridTarget,
+  pesanError,
+  type UjianAktif,
+  type PatokanUjianRow,
+} from "@/lib/ujian"
 
 interface MataPelajaran {
   id: string
   nama: string
   kode: string | null
-}
-
-const TIPE_OPTIONS = ["pilgan", "ceklist", "isian_singkat", "essay"]
-const KESULITAN_OPTIONS = ["mudah", "sedang", "sulit"]
-
-const TIPE_LABELS: Record<string, string> = {
-  pilgan: "Pilgan",
-  ceklist: "Ceklist",
-  isian_singkat: "Isian Singkat",
-  essay: "Essay",
-}
-
-const KESULITAN_LABELS: Record<string, string> = {
-  mudah: "Mudah",
-  sedang: "Sedang",
-  sulit: "Sulit",
 }
 
 const TIPE_COLORS: Record<string, { bg: string; accent: string }> = {
@@ -46,31 +44,7 @@ const BOBOT_DEFAULT: Record<string, Record<string, number>> = {
 type PatokanMap = Record<string, Record<string, number>>
 type BobotMap = Record<string, Record<string, number>>
 
-function buildEmpty(): Record<string, number> {
-  const p: Record<string, number> = {}
-  TIPE_OPTIONS.forEach(t => KESULITAN_OPTIONS.forEach(k => {
-    p[`${t}_${k}_keluar`] = 0
-    p[`${t}_${k}_bank`] = 0
-  }))
-  return p
-}
-
-function parsePatokan(data: any): Record<string, number> {
-  const p = buildEmpty()
-  const tipes = (data.tipe || "").split(",")
-  const tingkatans = (data.tingkat_kesulitan || "").split(",")
-  const keluarArr = (data.keluar || "").split(",")
-  const bankArr = (data.bank || "").split(",")
-  let i = 0
-  tipes.forEach((tipe: string) => {
-    tingkatans.forEach((kesulitan: string) => {
-      p[`${tipe}_${kesulitan}_keluar`] = parseInt(keluarArr[i]) || 0
-      p[`${tipe}_${kesulitan}_bank`] = parseInt(bankArr[i]) || 0
-      i++
-    })
-  })
-  return p
-}
+const buildEmpty = gridKosong
 
 function buildEmptyBobot(): Record<string, number> {
   const b: Record<string, number> = {}
@@ -88,6 +62,8 @@ export default function AdminPage() {
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null)
   const [activeTab, setActiveTab] = useState<"patokan" | "bobot">("patokan")
 
+  // Target dipetakan per ujian (mapel × kelas), bukan lagi per mapel
+  const [ujianList, setUjianList] = useState<UjianAktif[]>([])
   const [patokanMap, setPatokanMap] = useState<PatokanMap>({})
   const [saving, setSaving] = useState(false)
   const [savePressed, setSavePressed] = useState(false)
@@ -111,12 +87,29 @@ export default function AdminPage() {
       setMataPelajaran(mapels)
       if (mapels.length > 0) setSelectedBobotMapel(mapels[0].id)
 
-      const { data: patokanRows } = await supabase.from("psat_patokan_soal").select("*")
+      // Ujian pada siklus aktif yang soalnya ditentukan super admin
+      let ujians: UjianAktif[] = []
+      try {
+        ujians = await ambilUjianAktif()
+      } catch (e) {
+        setToast({ message: "Gagal memuat daftar ujian: " + pesanError(e), type: "error" })
+      }
+      setUjianList(ujians)
+
       const pMap: PatokanMap = {}
-      mapels.forEach(m => { pMap[m.id] = buildEmpty() })
-      if (patokanRows) {
-        patokanRows.forEach(row => {
-          if (pMap[row.mapel_id]) pMap[row.mapel_id] = { ...pMap[row.mapel_id], ...parsePatokan(row) }
+      ujians.forEach(u => { pMap[u.ujian_id] = buildEmpty() })
+
+      if (ujians.length > 0) {
+        const { data: patokanRows } = await supabase
+          .from("psat_patokan_ujian")
+          .select("ujian_id, tipe, tingkat_kesulitan, jumlah_keluar, jumlah_bank")
+          .in("ujian_id", ujians.map(u => u.ujian_id))
+
+        ;(patokanRows as (PatokanUjianRow & { ujian_id: string })[] | null)?.forEach(row => {
+          const g = pMap[row.ujian_id]
+          if (!g) return
+          g[`${row.tipe}_${row.tingkat_kesulitan}_keluar`] = row.jumlah_keluar ?? 0
+          g[`${row.tipe}_${row.tingkat_kesulitan}_bank`] = row.jumlah_bank ?? 0
         })
       }
       setPatokanMap(pMap)
@@ -145,34 +138,35 @@ export default function AdminPage() {
     setTimeout(() => setToast(null), 3000)
   }
 
-  const handlePatokanChange = (mapelId: string, field: string, value: number) => {
-    setPatokanMap(prev => ({ ...prev, [mapelId]: { ...prev[mapelId], [field]: value } }))
+  const handlePatokanChange = (ujianId: string, field: string, value: number) => {
+    setPatokanMap(prev => ({ ...prev, [ujianId]: { ...prev[ujianId], [field]: value } }))
   }
 
   const handleSavePatokan = async () => {
     if (!user) return
+
+    // Database menolak keluar > bank lewat CHECK; tangkap di sini supaya
+    // pesannya menyebut sel mana yang salah, bukan sekadar constraint violation.
+    const salah = ujianList.flatMap(u => {
+      const errs = validasiGridTarget(patokanMap[u.ujian_id] || buildEmpty())
+      return errs.map(e => `${labelUjian(u)} — ${e}`)
+    })
+    if (salah.length > 0) {
+      showToast(salah[0], "error")
+      return
+    }
+
     setSaving(true)
-    const tipe = TIPE_OPTIONS.join(",")
-    const tingkat_kesulitan = KESULITAN_OPTIONS.join(",")
-    const { data: existingRows } = await supabase.from("psat_patokan_soal").select("id, mapel_id")
-    const existingByMapel: Record<string, string> = {}
-    existingRows?.forEach(r => { existingByMapel[r.mapel_id] = r.id })
     let hasError = false
-    for (const mapel of mataPelajaran) {
-      const p = patokanMap[mapel.id] || buildEmpty()
-      const keluar = TIPE_OPTIONS.flatMap(t => KESULITAN_OPTIONS.map(k => p[`${t}_${k}_keluar`] || 0)).join(",")
-      const bank = TIPE_OPTIONS.flatMap(t => KESULITAN_OPTIONS.map(k => p[`${t}_${k}_bank`] || 0)).join(",")
-      const payload = { tipe, tingkat_kesulitan, keluar, bank, updated_at: new Date().toISOString() }
-      if (existingByMapel[mapel.id]) {
-        const { error } = await supabase.from("psat_patokan_soal").update(payload).eq("id", existingByMapel[mapel.id])
-        if (error) hasError = true
-      } else {
-        const { error } = await supabase.from("psat_patokan_soal").insert({ profile_id: user.id, mapel_id: mapel.id, ...payload })
-        if (error) hasError = true
+    for (const u of ujianList) {
+      try {
+        await simpanPatokanUjian(u.ujian_id, patokanMap[u.ujian_id] || buildEmpty(), user.id)
+      } catch {
+        hasError = true
       }
     }
     setSaving(false)
-    showToast(hasError ? "Sebagian gagal disimpan" : "Semua patokan berhasil disimpan!", hasError ? "error" : "success")
+    showToast(hasError ? "Sebagian gagal disimpan" : "Semua target berhasil disimpan!", hasError ? "error" : "success")
   }
 
   const handleBobotChange = (mapelId: string, tipe: string, kesulitan: string, value: number) => {
@@ -337,7 +331,30 @@ export default function AdminPage() {
       </div>
 
       {/* ===== TAB PATOKAN ===== */}
-      {activeTab === "patokan" && (
+      {activeTab === "patokan" && ujianList.length === 0 && (
+        <main className="px-4 py-4 pb-12">
+          <div
+            className="text-center px-6 py-12"
+            style={{
+              border: "1.5px solid var(--pp-ink)",
+              borderRadius: 22,
+              boxShadow: "6px 6px 0 0 var(--pp-ink)",
+              backgroundColor: "var(--pp-card)",
+            }}
+          >
+            <Inbox className="w-10 h-10 mx-auto mb-3" style={{ color: "var(--pp-muted)" }} />
+            <div className="font-display font-semibold text-base mb-1" style={{ color: "var(--pp-ink)" }}>
+              Belum ada ujian aktif
+            </div>
+            <p className="text-sm max-w-md mx-auto" style={{ color: "var(--pp-muted)" }}>
+              Target soal diisi per ujian. Super admin perlu membuat ujian (UTS/UAS) di LMS
+              pada siklus yang sedang aktif lebih dulu — daftarnya akan muncul di sini otomatis.
+            </p>
+          </div>
+        </main>
+      )}
+
+      {activeTab === "patokan" && ujianList.length > 0 && (
         <main className="px-4 py-4 pb-12 overflow-x-auto">
           <div
             style={{
@@ -356,7 +373,7 @@ export default function AdminPage() {
                     style={{ color: "var(--pp-ink)", borderRight: "1.5px solid var(--pp-ink)" }}
                     rowSpan={2}
                   >
-                    Mata Pelajaran
+                    Ujian
                   </th>
                   <th
                     className="px-3 py-2.5 text-left font-display font-semibold"
@@ -400,16 +417,16 @@ export default function AdminPage() {
                 </tr>
               </thead>
               <tbody>
-                {mataPelajaran.map((mapel, mi) => {
-                  const p = patokanMap[mapel.id] || buildEmpty()
+                {ujianList.map((ujian, mi) => {
+                  const p = patokanMap[ujian.ujian_id] || buildEmpty()
                   const rowBg = mi % 2 === 0 ? "var(--pp-card)" : "var(--pp-bg)"
                   return (
-                    <React.Fragment key={mapel.id}>
+                    <React.Fragment key={ujian.ujian_id}>
                       {KESULITAN_OPTIONS.map((kesulitan, ki) => {
                         const rowSoal = TIPE_OPTIONS.reduce((s, t) => s + (p[`${t}_${kesulitan}_keluar`] || 0), 0)
                         const rowBank = TIPE_OPTIONS.reduce((s, t) => s + (p[`${t}_${kesulitan}_bank`] || 0), 0)
                         return (
-                          <tr key={`${mapel.id}-${kesulitan}`} style={{ backgroundColor: rowBg }}>
+                          <tr key={`${ujian.ujian_id}-${kesulitan}`} style={{ backgroundColor: rowBg }}>
                             {ki === 0 && (
                               <td
                                 className="px-3 py-2 font-semibold text-sm"
@@ -421,14 +438,19 @@ export default function AdminPage() {
                                 }}
                                 rowSpan={KESULITAN_OPTIONS.length + 1}
                               >
-                                {mapel.nama}
-                                {mapel.kode && (
+                                {ujian.mapel_nama || ujian.ujian_nama}
+                                {ujian.level && (
                                   <span
                                     className="ml-1.5 text-xs px-1.5 py-0.5 rounded-full font-medium"
                                     style={{ backgroundColor: "var(--pp-lemon)", color: "var(--pp-ink)", border: "1px solid var(--pp-ink)" }}
                                   >
-                                    {mapel.kode}
+                                    Kelas {ujian.level}
                                   </span>
+                                )}
+                                {ujian.kelas_list && ujian.kelas_list.length > 0 && (
+                                  <div className="text-xs font-normal mt-1" style={{ color: "var(--pp-muted)" }}>
+                                    {ujian.kelas_list.join(", ")}
+                                  </div>
                                 )}
                               </td>
                             )}
@@ -444,7 +466,7 @@ export default function AdminPage() {
                                   <input
                                     type="number" min="0"
                                     value={p[`${tipe}_${kesulitan}_keluar`] || 0}
-                                    onChange={e => handlePatokanChange(mapel.id, `${tipe}_${kesulitan}_keluar`, parseInt(e.target.value) || 0)}
+                                    onChange={e => handlePatokanChange(ujian.ujian_id, `${tipe}_${kesulitan}_keluar`, parseInt(e.target.value) || 0)}
                                     className="w-14 px-1 py-0.5 rounded-[6px] text-xs text-center"
                                     style={{ backgroundColor: "var(--pp-bg)", border: "1.5px solid var(--pp-line)", color: "var(--pp-ink)", outline: "none" }}
                                     onFocus={e => { e.currentTarget.style.border = "1.5px solid var(--pp-primary)"; e.currentTarget.style.boxShadow = "2px 2px 0 0 var(--pp-primary)" }}
@@ -455,7 +477,7 @@ export default function AdminPage() {
                                   <input
                                     type="number" min="0"
                                     value={p[`${tipe}_${kesulitan}_bank`] || 0}
-                                    onChange={e => handlePatokanChange(mapel.id, `${tipe}_${kesulitan}_bank`, parseInt(e.target.value) || 0)}
+                                    onChange={e => handlePatokanChange(ujian.ujian_id, `${tipe}_${kesulitan}_bank`, parseInt(e.target.value) || 0)}
                                     className="w-14 px-1 py-0.5 rounded-[6px] text-xs text-center"
                                     style={{ backgroundColor: "var(--pp-bg)", border: "1.5px solid var(--pp-line)", color: "var(--pp-ink)", outline: "none" }}
                                     onFocus={e => { e.currentTarget.style.border = "1.5px solid var(--pp-primary)"; e.currentTarget.style.boxShadow = "2px 2px 0 0 var(--pp-primary)" }}

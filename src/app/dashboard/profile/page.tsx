@@ -3,13 +3,14 @@
 import { useEffect, useState, useCallback } from "react"
 import { useRouter } from "next/navigation"
 import { supabase } from "@/lib/supabase"
+import { ambilTugasMenulis, labelUjian, type TugasMenulis } from "@/lib/ujian"
 import Toast from "@/components/Toast"
 import ThemeToggle from "@/components/ThemeToggle"
 import { driver } from "driver.js"
 import "driver.js/dist/driver.css"
 import {
   ArrowLeft, CircleHelp, BookOpen,
-  User, Phone, Building2, GraduationCap,
+  User, Phone, Building2,
   BookMarked, CreditCard, Hash, Check, ArrowRight,
 } from "lucide-react"
 
@@ -21,12 +22,6 @@ interface PsatGuruData {
   bank: string | null
   unit_sekolah: string | null
   mapel_id: string | null
-}
-
-interface MataPelajaran {
-  id: string
-  nama: string
-  kode: string
 }
 
 const UNIT_OPTIONS = [
@@ -61,7 +56,6 @@ export default function ProfilePage() {
   const router = useRouter()
   const [user, setUser]               = useState<any>(null)
   const [role, setRole]               = useState<string>("guru")
-  const [mataPelajaran, setMataPelajaran] = useState<MataPelajaran[]>([])
   const [loading, setLoading]         = useState(true)
   const [saving, setSaving]           = useState(false)
   const [toast, setToast]             = useState<{ message: string; type: "success" | "error" | "info" } | null>(null)
@@ -72,8 +66,7 @@ export default function ProfilePage() {
   const [noRekening, setNoRekening]   = useState("")
   const [bank, setBank]               = useState("")
   const [unitSekolah, setUnitSekolah] = useState("")
-  const [kelas, setKelas]             = useState("")
-  const [mapelId, setMapelId]         = useState("")
+  const [tugasList, setTugasList]     = useState<TugasMenulis[]>([])
 
   const isValidator = role === "validator"
   const isAdmin     = role === "admin"
@@ -86,8 +79,7 @@ export default function ProfilePage() {
       { element: "#tour-nama", popover: { title: "Nama Lengkap", description: "Isi nama lengkap kamu sesuai identitas resmi.", side: "bottom" as const } },
       { element: "#tour-nohp", popover: { title: "Nomor HP", description: "Nomor WhatsApp aktif yang bisa dihubungi.", side: "bottom" as const } },
       { element: "#tour-unit", popover: { title: "Unit Sekolah", description: "Pilih unit sekolah tempat kamu mengajar.", side: "bottom" as const } },
-      { element: "#tour-kelas", popover: { title: "Kelas", description: "Pilih kelas yang kamu ampu (7, 8, atau 9).", side: "bottom" as const } },
-      { element: "#tour-mapel", popover: { title: "Mata Pelajaran", description: "Pilih mata pelajaran yang kamu ajarkan.", side: "top" as const } },
+      { element: "#tour-mapel", popover: { title: "Mata Pelajaran & Kelas", description: "Mengikuti penugasan mengajar kamu di LMS. Kalau keliru, minta admin memperbaikinya di sana.", side: "top" as const } },
       { element: "#tour-bank", popover: { title: "Bank & No. Rekening", description: "Isi informasi rekening untuk keperluan pembayaran honorarium.", side: "top" as const } },
       { element: "#tour-simpan", popover: { title: "Simpan Data", description: "Setelah semua terisi, klik Simpan. Kamu akan diarahkan kembali ke dashboard.", side: "top" as const } },
     ]
@@ -109,9 +101,6 @@ export default function ProfilePage() {
       if (!u) { router.push("/login"); return }
       setUser(u)
 
-      const { data: mapelData } = await supabase.from("mata_pelajaran").select("id, nama, kode").order("nama")
-      if (mapelData) setMataPelajaran(mapelData)
-
       // Profil tidak lagi dibuat sendiri di sini — keanggotaan PSAT datang dari
       // flag di LMS. Kalau kosong, dashboard yang menjelaskan sebabnya.
       const { data: profileData } = await supabase.from("profiles").select("*").eq("id", u.id).maybeSingle()
@@ -121,14 +110,20 @@ export default function ProfilePage() {
       setRole(userRole)
       setNama(profileData?.nama || u.user_metadata?.nama || "")
       setNoHp(profileData?.no_hp || u.user_metadata?.no_hp || "")
-      setKelas(profileData?.kelas || "")
 
       const { data } = await supabase.from("psat_guru_data").select("*").eq("profile_id", u.id).maybeSingle()
       if (data) {
         setNoRekening(data.no_rekening || "")
         setBank(data.bank || "")
         setUnitSekolah(data.unit_sekolah || "")
-        setMapelId(data.mapel_id || "")
+      }
+
+      if (userRole === "guru") {
+        try {
+          setTugasList(await ambilTugasMenulis())
+        } catch {
+          setTugasList([])
+        }
       }
       setLoading(false)
     }
@@ -156,10 +151,7 @@ export default function ProfilePage() {
       bank: !bank,
       noRekening: !noRekening.trim(),
     }
-    if (isGuruRole) {
-      fieldErrors.kelas   = !kelas
-      fieldErrors.mapelId = !mapelId
-    }
+    // Kelas & mapel tidak lagi diisi sendiri — datang dari penugasan di LMS
     setErrors(fieldErrors)
 
     if (Object.values(fieldErrors).some(Boolean)) {
@@ -170,7 +162,7 @@ export default function ProfilePage() {
 
     const { error: profileError } = await supabase
       .from("profiles")
-      .update({ nama, no_hp: noHp, kelas: isGuruRole ? kelas : null })
+      .update({ nama, no_hp: noHp })
       .eq("id", user.id)
 
     if (profileError) {
@@ -180,7 +172,7 @@ export default function ProfilePage() {
     }
 
     const { data: existing } = await supabase.from("psat_guru_data").select("id").eq("profile_id", user.id).maybeSingle()
-    const payload = { whatsapp: noHp, no_rekening: noRekening, bank, unit_sekolah: unitSekolah, mapel_id: isGuruRole ? (mapelId || null) : null }
+    const payload = { whatsapp: noHp, no_rekening: noRekening, bank, unit_sekolah: unitSekolah }
 
     let guruError
     if (existing) {
@@ -369,35 +361,38 @@ export default function ProfilePage() {
               </Field>
 
               {isGuruRole && (
-                <>
-                  <Field id="tour-kelas" label="Kelas" required error={errors.kelas}
-                         icon={<GraduationCap className="w-4 h-4" />}>
-                    <select
-                      value={kelas}
-                      onChange={e => { setKelas(e.target.value); setErrors(p => ({ ...p, kelas: false })) }}
-                      style={inputBase(errors.kelas)}
-                    >
-                      <option value="">Pilih Kelas</option>
-                      <option value="7">Kelas 7</option>
-                      <option value="8">Kelas 8</option>
-                      <option value="9">Kelas 9</option>
-                    </select>
-                  </Field>
-
-                  <Field id="tour-mapel" label="Mata Pelajaran" required error={errors.mapelId}
-                         icon={<BookMarked className="w-4 h-4" />}>
-                    <select
-                      value={mapelId}
-                      onChange={e => { setMapelId(e.target.value); setErrors(p => ({ ...p, mapelId: false })) }}
-                      style={inputBase(errors.mapelId)}
-                    >
-                      <option value="">Pilih Mata Pelajaran</option>
-                      {mataPelajaran.map(m => (
-                        <option key={m.id} value={m.id}>{m.nama}{m.kode ? ` (${m.kode})` : ""}</option>
-                      ))}
-                    </select>
-                  </Field>
-                </>
+                <Field id="tour-mapel" label="Mata Pelajaran & Kelas"
+                       icon={<BookMarked className="w-4 h-4" />}>
+                  {/* Dulu dipilih sendiri, sekarang mengikuti penugasan di LMS —
+                      supaya guru tidak bisa menulis untuk mapel/kelas yang salah */}
+                  <div
+                    style={{
+                      border: "1.5px solid var(--pp-line)",
+                      borderRadius: 12,
+                      padding: "10px 12px",
+                      backgroundColor: "var(--pp-bg)",
+                    }}
+                  >
+                    {tugasList.length > 0 ? (
+                      <div className="flex flex-wrap gap-1.5">
+                        {tugasList.map(t => (
+                          <span
+                            key={t.ujian_id}
+                            className="text-xs px-2 py-1 rounded-full font-medium"
+                            style={{ backgroundColor: "var(--pp-card)", color: "var(--pp-ink)", border: "1px solid var(--pp-ink)" }}
+                          >
+                            {labelUjian(t)}
+                          </span>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="text-xs" style={{ color: "var(--pp-muted)" }}>
+                        Belum ada penugasan menulis. Minta admin mengatur mata pelajaran
+                        dan kelas yang Anda ampu di LMS.
+                      </div>
+                    )}
+                  </div>
+                </Field>
               )}
             </Section>
 

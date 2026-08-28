@@ -4,14 +4,19 @@ import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { supabase } from "@/lib/supabase"
 import Toast from "@/components/Toast"
-import { CheckCircle, Clock, AlertCircle, ArrowLeft, Pencil, Trash2, Check, X, Users, Highlighter } from "lucide-react"
+import { CheckCircle, Clock, AlertCircle, ArrowLeft, Pencil, Trash2, Check, X, Highlighter } from "lucide-react"
 import ThemeToggle from "@/components/ThemeToggle"
 import DownloadDropdown from "@/components/DownloadDropdown"
+import { ambilUjianPsat, labelUjian, pesanError, type UjianPsat } from "@/lib/ujian"
 
-interface MapelSummary {
-  id: string
-  nama: string
-  kode: string | null
+/** Ujian yang dibuka dari dashboard, dioper lewat localStorage. */
+const VALIDASI_UJIAN_KEY = "psat_validasi_ujian_id"
+
+interface UjianSummary {
+  id: string          // ujian_id
+  mapel_id: string | null
+  nama: string        // nama mata pelajaran
+  level: string | null
   submitted: number
   needs_revision: number
   approved: number
@@ -74,8 +79,8 @@ function applyHighlights(html: string, highlights: HighlightItem[], field: strin
 export default function ValidasiPage() {
   const router = useRouter()
   const [user, setUser] = useState<any>(null)
-  const [mapelSummaries, setMapelSummaries] = useState<MapelSummary[]>([])
-  const [selectedMapel, setSelectedMapel] = useState<MapelSummary | null>(null)
+  const [ujianSummaries, setUjianSummaries] = useState<UjianSummary[]>([])
+  const [selectedUjian, setSelectedUjian] = useState<UjianSummary | null>(null)
   const [soalList, setSoalList] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [loadingSoal, setLoadingSoal] = useState(false)
@@ -84,8 +89,7 @@ export default function ValidasiPage() {
   const [revisionNotes, setRevisionNotes] = useState<Record<string, string>>({})
   const [editingNote, setEditingNote] = useState<{ soalId: string; index: number; text: string } | null>(null)
   const [validatorMapelIds, setValidatorMapelIds] = useState<string[] | null>(null)
-  const [guruMap, setGuruMap] = useState<Record<string, { kelas: string; nama: string }>>({})
-  const [filterKelas, setFilterKelas] = useState<string | null>(null)
+  const [guruMap, setGuruMap] = useState<Record<string, { nama: string }>>({})
   const [filterGuru, setFilterGuru] = useState<string | null>(null)
   const [filterStatusValidasi, setFilterStatusValidasi] = useState<string | null>(null)
   const [highlightPopover, setHighlightPopover] = useState<{ soalId: string; field: string; text: string; x: number; y: number; occurrenceIndex: number } | null>(null)
@@ -143,37 +147,43 @@ export default function ValidasiPage() {
         setValidatorMapelIds(assignedMapelIds)
       }
 
-      const { data: mapelList } = await supabase
-        .from("mata_pelajaran")
-        .select("id, nama, kode")
-        .order("nama", { ascending: true })
+      // Antrean validasi kini per ujian (mapel × kelas), bukan per mapel —
+      // dari sinilah kelas soal berasal sekarang.
+      let ujianRows: UjianPsat[] = []
+      try {
+        ujianRows = await ambilUjianPsat()
+      } catch (e) {
+        setToast({ message: "Gagal memuat daftar ujian: " + pesanError(e), type: "error" })
+      }
 
       const { data: soalCounts } = await supabase
         .from("bank_soal")
-        .select("mata_pelajaran_id, status")
+        .select("ujian_id, status")
         .in("status", ["submitted", "needs_revision", "approved"])
 
-      if (mapelList && soalCounts) {
-        let summaries: MapelSummary[] = mapelList.map(m => ({
-          id: m.id,
-          nama: m.nama,
-          kode: m.kode,
-          submitted: soalCounts.filter(s => s.mata_pelajaran_id === m.id && s.status === "submitted").length,
-          needs_revision: soalCounts.filter(s => s.mata_pelajaran_id === m.id && s.status === "needs_revision").length,
-          approved: soalCounts.filter(s => s.mata_pelajaran_id === m.id && s.status === "approved").length,
+      if (soalCounts) {
+        let summaries: UjianSummary[] = ujianRows.map(u => ({
+          id: u.ujian_id,
+          mapel_id: u.psat_mapel_id,
+          nama: u.mapel_nama || u.ujian_nama,
+          level: u.level,
+          submitted: soalCounts.filter(s => s.ujian_id === u.ujian_id && s.status === "submitted").length,
+          needs_revision: soalCounts.filter(s => s.ujian_id === u.ujian_id && s.status === "needs_revision").length,
+          approved: soalCounts.filter(s => s.ujian_id === u.ujian_id && s.status === "approved").length,
         })).filter(m => m.submitted + m.needs_revision + m.approved > 0)
 
+        // Penugasan validator masih per mata pelajaran
         if (assignedMapelIds !== null) {
-          summaries = summaries.filter(m => assignedMapelIds!.includes(m.id))
+          summaries = summaries.filter(m => m.mapel_id && assignedMapelIds!.includes(m.mapel_id))
         }
 
-        setMapelSummaries(summaries)
+        setUjianSummaries(summaries)
 
-        const savedMapelId = localStorage.getItem("selectedMapelId")
-        if (savedMapelId) {
-          localStorage.removeItem("selectedMapelId")
-          const found = summaries.find(m => m.id === savedMapelId)
-          if (found) openMapel(found)
+        const savedUjianId = localStorage.getItem(VALIDASI_UJIAN_KEY)
+        if (savedUjianId) {
+          localStorage.removeItem(VALIDASI_UJIAN_KEY)
+          const found = summaries.find(m => m.id === savedUjianId)
+          if (found) openUjian(found)
         }
       }
 
@@ -182,12 +192,11 @@ export default function ValidasiPage() {
     load()
   }, [router])
 
-  const openMapel = async (mapel: MapelSummary, initialStatus?: string) => {
-    setSelectedMapel(mapel)
+  const openUjian = async (ujian: UjianSummary, initialStatus?: string) => {
+    setSelectedUjian(ujian)
     setLoadingSoal(true)
     setSoalList([])
     setGuruMap({})
-    setFilterKelas(null)
     setFilterGuru(null)
     setFilterStatusValidasi(initialStatus ?? null)
     setRevisionNotes({})
@@ -195,7 +204,7 @@ export default function ValidasiPage() {
     const { data: soal, error: soalError } = await supabase
       .from("bank_soal")
       .select("id,pertanyaan,tipe,tingkat_kesulitan,bobot,bab_id_text,created_at,pilihan,pilihan_gambar,status,revision_notes,revision_history,guru_id,highlights")
-      .eq("mata_pelajaran_id", mapel.id)
+      .eq("ujian_id", ujian.id)
       .in("status", ["submitted", "needs_revision", "approved"])
       .order("created_at", { ascending: true })
 
@@ -205,19 +214,17 @@ export default function ValidasiPage() {
       const soalData = soal ?? []
       setSoalList(soalData)
 
+      // Hanya nama yang diambil dari profil. Kelas datang dari ujian, supaya
+      // soal lama tidak ikut berpindah kelas saat guru ganti kelas.
       const guruIds = [...new Set(soalData.map((s: any) => s.guru_id).filter(Boolean))]
       if (guruIds.length > 0) {
         const { data: profiles } = await supabase
           .from("profiles")
-          .select("id, nama, kelas, email")
+          .select("id, nama")
           .in("id", guruIds)
         if (profiles) {
-          const map: Record<string, { kelas: string; nama: string }> = {}
-          profiles.forEach((p: any) => {
-            const angka = p.email?.match(/(\d+)@/)?.[1]
-            const kelas = angka ? `Kelas ${angka}` : (p.kelas || "—")
-            map[p.id] = { kelas, nama: p.nama || "Guru" }
-          })
+          const map: Record<string, { nama: string }> = {}
+          profiles.forEach((p: any) => { map[p.id] = { nama: p.nama || "Guru" } })
           setGuruMap(map)
         }
       }
@@ -250,12 +257,12 @@ export default function ValidasiPage() {
       setSoalList(prev => prev.map(s =>
         s.id === soalId ? { ...s, status: newStatus, revision_notes: fullNotes, revision_history: newHistory } : s
       ))
-      setMapelSummaries(prev => prev.map(m => {
-        if (m.id !== selectedMapel?.id) return m
+      setUjianSummaries(prev => prev.map(m => {
+        if (m.id !== selectedUjian?.id) return m
         const old = soalList.find(s => s.id === soalId)
         if (!old) return m
-        const dec = (k: keyof MapelSummary) => Math.max(0, (m[k] as number) - 1)
-        const inc = (k: keyof MapelSummary) => (m[k] as number) + 1
+        const dec = (k: keyof UjianSummary) => Math.max(0, (m[k] as number) - 1)
+        const inc = (k: keyof UjianSummary) => (m[k] as number) + 1
         const updated = { ...m }
         if (old.status === "submitted") updated.submitted = dec("submitted")
         if (old.status === "needs_revision") updated.needs_revision = dec("needs_revision")
@@ -270,20 +277,20 @@ export default function ValidasiPage() {
       supabase.auth.getSession().then(({ data: { session } }) => {
         if (!session) return
 
-        if (newStatus === "needs_revision" && currentSoal?.guru_id && selectedMapel) {
+        if (newStatus === "needs_revision" && currentSoal?.guru_id && selectedUjian) {
           fetch("/api/notifications/whatsapp", {
             method: "POST",
             headers: { "Content-Type": "application/json", "Authorization": `Bearer ${session.access_token}` },
             body: JSON.stringify({
               type: "needs_revision",
               guruId: currentSoal.guru_id,
-              mapelNama: selectedMapel.nama,
+              mapelNama: labelUjian({ mapel_nama: selectedUjian.nama, level: selectedUjian.level }),
               catatanRevisi: notes || "Mohon periksa kembali soal Anda.",
             }),
           }).catch(() => {})
         }
 
-        if (newStatus === "approved" && currentSoal?.guru_id && selectedMapel) {
+        if (newStatus === "approved" && currentSoal?.guru_id && selectedUjian) {
           // Hitung updatedList manual karena setSoalList bersifat async
           const updatedList = soalList.map(s => s.id === soalId ? { ...s, status: newStatus } : s)
           const guruSoal = updatedList.filter(s => s.guru_id === currentSoal.guru_id)
@@ -296,7 +303,7 @@ export default function ValidasiPage() {
               body: JSON.stringify({
                 type: "guru_all_approved",
                 guruId: currentSoal.guru_id,
-                mapelNama: selectedMapel.nama,
+                mapelNama: labelUjian({ mapel_nama: selectedUjian.nama, level: selectedUjian.level }),
                 totalSoal: guruSoal.length,
               }),
             }).catch(() => {})
@@ -417,13 +424,12 @@ export default function ValidasiPage() {
     )
   }
 
-  const availableKelas = [...new Set(soalList.map(s => guruMap[s.guru_id]?.kelas).filter(Boolean))] as string[]
   const availableGuru = [...new Map(
     soalList.map(s => [s.guru_id, guruMap[s.guru_id]?.nama || s.guru_id])
   ).entries()] as [string, string][]
 
+  // Filter kelas tidak lagi diperlukan: memilih ujian sudah menetapkan kelasnya
   const filteredSoal = soalList
-    .filter(s => !filterKelas || guruMap[s.guru_id]?.kelas === filterKelas)
     .filter(s => !filterStatusValidasi || s.status === filterStatusValidasi)
 
   return (
@@ -450,14 +456,14 @@ export default function ValidasiPage() {
               <span className="font-display font-semibold text-base" style={{ color: "var(--pp-ink)" }}>
                 Validasi Soal
               </span>
-              {selectedMapel && (
+              {selectedUjian && (
                 <>
                   <span style={{ color: "var(--pp-line)", fontSize: 18 }}>/</span>
                   <span
                     className="text-sm font-medium truncate"
                     style={{ color: "var(--pp-muted)" }}
                   >
-                    {selectedMapel.nama}
+                    {labelUjian({ mapel_nama: selectedUjian.nama, level: selectedUjian.level })}
                   </span>
                 </>
               )}
@@ -499,7 +505,7 @@ export default function ValidasiPage() {
             >
               Belum ada mata pelajaran yang ditugaskan. Hubungi admin.
             </div>
-          ) : mapelSummaries.length === 0 ? (
+          ) : ujianSummaries.length === 0 ? (
             <div
               style={{
                 border: "1.5px dashed var(--pp-ink)",
@@ -513,8 +519,8 @@ export default function ValidasiPage() {
             </div>
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-              {mapelSummaries.map(m => {
-                const isActive = selectedMapel?.id === m.id
+              {ujianSummaries.map(m => {
+                const isActive = selectedUjian?.id === m.id
                 const hasPending = m.submitted + m.needs_revision > 0
                 const allApproved = m.approved > 0 && m.submitted === 0 && m.needs_revision === 0
 
@@ -526,7 +532,7 @@ export default function ValidasiPage() {
                 return (
                   <button
                     key={m.id}
-                    onClick={() => openMapel(m)}
+                    onClick={() => openUjian(m)}
                     className="text-left"
                     style={{
                       backgroundColor: cardBg,
@@ -543,19 +549,19 @@ export default function ValidasiPage() {
                       <span className="text-sm font-semibold leading-snug" style={{ color: "var(--pp-ink)" }}>
                         {m.nama}
                       </span>
-                      {m.kode && (
+                      {m.level && (
                         <span
                           className="text-xs px-1.5 py-0.5 rounded-full shrink-0 font-medium"
                           style={{ backgroundColor: "var(--pp-bg)", color: "var(--pp-muted)", border: "1px solid var(--pp-line)" }}
                         >
-                          {m.kode}
+                          Kelas {m.level}
                         </span>
                       )}
                     </div>
                     <div className="flex flex-wrap gap-1.5">
                       {m.submitted > 0 && (
                         <button
-                          onClick={e => { e.stopPropagation(); openMapel(m, "submitted") }}
+                          onClick={e => { e.stopPropagation(); openUjian(m, "submitted") }}
                           className="flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full"
                           style={{ backgroundColor: "var(--pp-lemon)", color: "#92400e", border: "1px solid var(--pp-ink)", cursor: "pointer" }}
                         >
@@ -564,7 +570,7 @@ export default function ValidasiPage() {
                       )}
                       {m.needs_revision > 0 && (
                         <button
-                          onClick={e => { e.stopPropagation(); openMapel(m, "needs_revision") }}
+                          onClick={e => { e.stopPropagation(); openUjian(m, "needs_revision") }}
                           className="flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full"
                           style={{ backgroundColor: "var(--pp-pink)", color: "#be123c", border: "1px solid var(--pp-ink)", cursor: "pointer" }}
                         >
@@ -573,7 +579,7 @@ export default function ValidasiPage() {
                       )}
                       {m.approved > 0 && (
                         <button
-                          onClick={e => { e.stopPropagation(); openMapel(m, "approved") }}
+                          onClick={e => { e.stopPropagation(); openUjian(m, "approved") }}
                           className="flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full"
                           style={{ backgroundColor: "var(--pp-mint)", color: "#15803d", border: "1px solid var(--pp-ink)", cursor: "pointer" }}
                         >
@@ -589,7 +595,7 @@ export default function ValidasiPage() {
         </div>
 
         {/* Soal list */}
-        {selectedMapel && (
+        {selectedUjian && (
           <div
             style={{
               backgroundColor: "var(--pp-card)",
@@ -617,93 +623,36 @@ export default function ValidasiPage() {
                   Daftar Soal
                 </div>
                 <div className="font-display font-semibold text-lg" style={{ color: "var(--pp-ink)" }}>
-                  {selectedMapel.nama}
+                  {selectedUjian.nama}
                 </div>
               </div>
               <div className="flex items-center gap-2 flex-wrap">
-                {selectedMapel.submitted > 0 && (
+                {selectedUjian.submitted > 0 && (
                   <span className="flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-full"
                     style={{ backgroundColor: "var(--pp-lemon)", color: "#92400e", border: "1.5px solid var(--pp-ink)" }}>
-                    <Clock className="w-3.5 h-3.5" /> {selectedMapel.submitted} menunggu
+                    <Clock className="w-3.5 h-3.5" /> {selectedUjian.submitted} menunggu
                   </span>
                 )}
-                {selectedMapel.needs_revision > 0 && (
+                {selectedUjian.needs_revision > 0 && (
                   <span className="flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-full"
                     style={{ backgroundColor: "var(--pp-pink)", color: "#be123c", border: "1.5px solid var(--pp-ink)" }}>
-                    <AlertCircle className="w-3.5 h-3.5" /> {selectedMapel.needs_revision} revisi
+                    <AlertCircle className="w-3.5 h-3.5" /> {selectedUjian.needs_revision} revisi
                   </span>
                 )}
-                {selectedMapel.approved > 0 && (
+                {selectedUjian.approved > 0 && (
                   <span className="flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-full"
                     style={{ backgroundColor: "var(--pp-mint)", color: "#15803d", border: "1.5px solid var(--pp-ink)" }}>
-                    <CheckCircle className="w-3.5 h-3.5" /> {selectedMapel.approved} approved
+                    <CheckCircle className="w-3.5 h-3.5" /> {selectedUjian.approved} approved
                   </span>
                 )}
                 {!loadingSoal && soalList.length > 0 && (
                   <DownloadDropdown
                     soalList={soalList}
-                    filename={`soal-${selectedMapel.nama}`}
-                    meta={{ judul: `Soal ${selectedMapel.nama}`, tanggal: new Date().toISOString() }}
+                    filename={`soal-${selectedUjian.nama}`}
+                    meta={{ judul: `Soal ${selectedUjian.nama}`, tanggal: new Date().toISOString() }}
                   />
                 )}
               </div>
-
-              {/* Filter kelas */}
-              {!loadingSoal && soalList.length > 0 && availableKelas.length > 1 && (
-                <div
-                  style={{
-                    borderTop: "1.5px solid var(--pp-ink)",
-                    backgroundColor: "var(--pp-bg)",
-                    padding: "10px 20px",
-                    display: "flex",
-                    alignItems: "center",
-                    flexWrap: "wrap",
-                    gap: 6,
-                  }}
-                >
-                  <Users className="w-3.5 h-3.5 shrink-0" style={{ color: "var(--pp-muted)" }} />
-
-                  {availableKelas.map(kelas => {
-                    const active = filterKelas === kelas
-                    return (
-                      <button
-                        key={kelas}
-                        onClick={() => setFilterKelas(active ? null : kelas)}
-                        className="text-xs px-2.5 py-1 rounded-full font-semibold transition-all"
-                        style={{
-                          backgroundColor: active ? "#6d28d9" : "#ECE4FF",
-                          color: active ? "#fff" : "#6d28d9",
-                          border: `1.5px solid ${active ? "#6d28d9" : "var(--pp-line)"}`,
-                          cursor: "pointer",
-                        }}
-                      >
-                        {kelas}
-                      </button>
-                    )
-                  })}
-
-                  {(filterKelas || filterStatusValidasi) && (
-                    <button
-                      onClick={() => { setFilterKelas(null); setFilterStatusValidasi(null) }}
-                      className="text-xs px-2.5 py-1 rounded-full transition-all"
-                      style={{
-                        backgroundColor: "var(--pp-bg)",
-                        color: "var(--pp-muted)",
-                        border: "1.5px solid var(--pp-line)",
-                        cursor: "pointer",
-                      }}
-                    >
-                      × Reset
-                    </button>
-                  )}
-
-                  {(filterKelas || filterStatusValidasi) && (
-                    <span className="text-xs ml-auto" style={{ color: "var(--pp-muted)" }}>
-                      {filteredSoal.length} / {soalList.length} soal
-                    </span>
-                  )}
-                </div>
-              )}
 
               {/* Filter status */}
               {!loadingSoal && soalList.length > 0 && (
@@ -751,7 +700,7 @@ export default function ValidasiPage() {
                     })
                   })()}
 
-                  {filterStatusValidasi && availableKelas.length <= 1 && (
+                  {filterStatusValidasi && (
                     <>
                       <button
                         onClick={() => setFilterStatusValidasi(null)}
@@ -851,7 +800,7 @@ export default function ValidasiPage() {
                               className="text-xs px-2 py-0.5 rounded-full font-semibold"
                               style={{ backgroundColor: "var(--pp-peach)", color: "var(--pp-ink)", border: "1px solid var(--pp-ink)" }}
                             >
-                              {guruMap[soal.guru_id].kelas} · {guruMap[soal.guru_id].nama}
+                              {selectedUjian?.level ? `Kelas ${selectedUjian.level} · ` : ""}{guruMap[soal.guru_id].nama}
                             </span>
                           )}
                         </div>

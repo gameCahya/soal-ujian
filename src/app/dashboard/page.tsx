@@ -10,6 +10,7 @@ import {
   LogOut, Lock, BookOpen, ArrowRight,
 } from "lucide-react"
 import { supabase } from "@/lib/supabase"
+import { ambilTugasMenulis, ambilUjianPsat, labelUjian, type PatokanUjianRow, type TugasMenulis, type UjianPsat } from "@/lib/ujian"
 import ThemeToggle from "@/components/ThemeToggle"
 
 const TIPE_OPTIONS     = ["pilgan", "ceklist", "essay"]
@@ -71,6 +72,7 @@ export default function DashboardPage() {
   const [soalCounts, setSoalCounts]             = useState<Record<string, number>>({})
   const [patokan, setPatokan]                   = useState<Record<string, number>>({})
   const [targetBank, setTargetBank]             = useState(0)
+  const [tugasList, setTugasList]               = useState<TugasMenulis[]>([])
   const [loading, setLoading]                   = useState(true)
 
   useEffect(() => {
@@ -105,9 +107,10 @@ export default function DashboardPage() {
       const { data: guruData } = await supabase
         .from("psat_guru_data").select("bank, no_rekening, unit_sekolah, mapel_id").eq("profile_id", u.id).maybeSingle()
 
+      // Mapel & kelas tidak lagi bagian dari profil — keduanya dari penugasan LMS
       const namaOk = !!fullProfile?.nama && fullProfile.nama !== u.id
-      setHasProfile(namaOk && !!fullProfile?.no_hp && !!fullProfile?.kelas &&
-        !!guruData?.unit_sekolah && !!guruData?.mapel_id && !!guruData?.bank && !!guruData?.no_rekening)
+      setHasProfile(namaOk && !!fullProfile?.no_hp &&
+        !!guruData?.unit_sekolah && !!guruData?.bank && !!guruData?.no_rekening)
 
       const vRole = fullProfile?.role || "guru"
       if (vRole === "validator" || vRole === "admin") {
@@ -123,9 +126,16 @@ export default function DashboardPage() {
         validatorMapelIds = vmRows?.map((r: any) => r.mapel_id) ?? []
       }
 
-      const { data: matrix } = await supabase
-        .from("psat_matrix_input").select("id").eq("profile_id", u.id).eq("is_submitted", true)
-      setHasMatrix(!!matrix && matrix.length > 0)
+      // Tugas menulis menentukan ujian mana yang dihitung di halaman ini
+      let tugas: TugasMenulis[] = []
+      try {
+        tugas = await ambilTugasMenulis()
+      } catch (e) {
+        console.error("Gagal memuat tugas menulis:", e)
+      }
+      setTugasList(tugas)
+      const ujianIds = tugas.map(t => t.ujian_id)
+      setHasMatrix(tugas.some(t => t.matrix_submitted))
 
       const [{ count: sub }, { count: app }, { count: rev }] = await Promise.all([
         supabase.from("bank_soal").select("*", { count: "exact", head: true }).eq("status", "submitted"),
@@ -136,46 +146,50 @@ export default function DashboardPage() {
       setApprovedCount(app || 0)
       setRevisionCount(rev || 0)
 
-      const { data: submittedByMapel } = await supabase
-        .from("bank_soal").select("mata_pelajaran_id").eq("status", "submitted")
+      // Antrean validasi dikelompokkan per ujian supaya kelasnya ikut terbaca
+      const { data: submittedByUjian } = await supabase
+        .from("bank_soal").select("ujian_id").eq("status", "submitted")
       const counts: Record<string, number> = {}
       const names: Record<string, string> = {}
-      if (submittedByMapel) {
-        submittedByMapel.forEach(s => { if (s.mata_pelajaran_id) counts[s.mata_pelajaran_id] = (counts[s.mata_pelajaran_id] || 0) + 1 })
-        const { data: mapels } = await supabase.from("mata_pelajaran").select("id, nama")
-        mapels?.forEach(m => { names[m.id] = m.nama })
+      const mapelDariUjian: Record<string, string | null> = {}
+      if (submittedByUjian) {
+        submittedByUjian.forEach(s => { if (s.ujian_id) counts[s.ujian_id] = (counts[s.ujian_id] || 0) + 1 })
+        const ujianRows = await ambilUjianPsat().catch(() => [] as UjianPsat[])
+        ujianRows.forEach(u => {
+          names[u.ujian_id] = labelUjian({ mapel_nama: u.mapel_nama, level: u.level, ujian_nama: u.ujian_nama })
+          mapelDariUjian[u.ujian_id] = u.psat_mapel_id
+        })
       }
       if (validatorMapelIds !== null) {
-        Object.keys(counts).forEach(mapelId => {
-          if (!validatorMapelIds!.includes(mapelId)) delete counts[mapelId]
+        Object.keys(counts).forEach(ujianId => {
+          const mapelId = mapelDariUjian[ujianId]
+          if (!mapelId || !validatorMapelIds!.includes(mapelId)) delete counts[ujianId]
         })
       }
       setMapelCounts(counts)
       setMapelNames(names)
 
-      if (guruData?.mapel_id) {
+      // Target dijumlahkan lintas tugas — guru bisa mengampu lebih dari satu
+      if (ujianIds.length > 0) {
         const { data: patokanRows } = await supabase
-          .from("psat_patokan_soal").select("*").eq("mapel_id", guruData.mapel_id)
-          .order("created_at", { ascending: false }).limit(1)
-        const pd = patokanRows?.[0]
-        if (pd) {
-          const p: Record<string, number> = {}
-          const tipes = (pd.tipe || "").split(",")
-          const tingkatans = (pd.tingkat_kesulitan || "").split(",")
-          const keluarArr = (pd.keluar || "").split(",")
-          const bankArr = (pd.bank || "").split(",")
-          let i = 0
-          tipes.forEach((t: string) => tingkatans.forEach((k: string) => {
-            p[`${t}_${k}_keluar`] = parseInt(keluarArr[i]) || 0
-            p[`${t}_${k}_bank`]   = parseInt(bankArr[i])   || 0
-            i++
-          }))
-          setPatokan(p)
-        }
+          .from("psat_patokan_ujian")
+          .select("tipe, tingkat_kesulitan, jumlah_keluar, jumlah_bank")
+          .in("ujian_id", ujianIds)
+        const p: Record<string, number> = {}
+        patokanRows?.forEach((r: PatokanUjianRow) => {
+          const kk = `${r.tipe}_${r.tingkat_kesulitan}_keluar`
+          const kb = `${r.tipe}_${r.tingkat_kesulitan}_bank`
+          p[kk] = (p[kk] || 0) + (r.jumlah_keluar || 0)
+          p[kb] = (p[kb] || 0) + (r.jumlah_bank || 0)
+        })
+        setPatokan(p)
       }
 
-      const { data: guruSoal } = await supabase
-        .from("bank_soal").select("status, tipe, tingkat_kesulitan").eq("guru_id", u.id)
+      const { data: guruSoal } = ujianIds.length > 0
+        ? await supabase
+            .from("bank_soal").select("status, tipe, tingkat_kesulitan")
+            .eq("guru_id", u.id).in("ujian_id", ujianIds)
+        : { data: [] as any[] }
       if (guruSoal) {
         const stats = { total: guruSoal.length, submitted: 0, approved: 0, needs_revision: 0, draft: 0 }
         const sc: Record<string, number> = {}
@@ -193,8 +207,11 @@ export default function DashboardPage() {
         setSoalCounts(sc)
       }
 
-      const { data: matrixBabs } = await supabase
-        .from("psat_matrix_input").select("data").eq("profile_id", u.id).eq("is_submitted", true)
+      const { data: matrixBabs } = ujianIds.length > 0
+        ? await supabase
+            .from("psat_matrix_input").select("data")
+            .eq("profile_id", u.id).in("ujian_id", ujianIds).eq("is_submitted", true)
+        : { data: [] as any[] }
       if (matrixBabs) {
         let total = 0
         matrixBabs.forEach(bab => { if (bab.data) Object.keys(bab.data).forEach(k => { if (k.endsWith("_bank")) total += bab.data[k] || 0 }) })
@@ -493,10 +510,10 @@ export default function DashboardPage() {
                   </span>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  {Object.entries(mapelCounts).map(([mapelId, count]) => (
+                  {Object.entries(mapelCounts).map(([ujianId, count]) => (
                     <button
-                      key={mapelId}
-                      onClick={() => { localStorage.setItem("selectedMapelId", mapelId); router.push("/dashboard/validasi") }}
+                      key={ujianId}
+                      onClick={() => { localStorage.setItem("psat_validasi_ujian_id", ujianId); router.push("/dashboard/validasi") }}
                       className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-full"
                       style={{
                         backgroundColor: "#FFF5C6", border: "1.5px solid var(--pp-ink)",
@@ -504,7 +521,7 @@ export default function DashboardPage() {
                         boxShadow: "2px 2px 0 0 var(--pp-ink)", fontFamily: "inherit",
                       }}
                     >
-                      {mapelNames[mapelId] || "Mapel"}
+                      {mapelNames[ujianId] || "Ujian"}
                       <span style={{
                         backgroundColor: "var(--pp-ink)", color: "white",
                         borderRadius: "999px", padding: "1px 7px", fontSize: "11px", fontWeight: 700,
@@ -652,6 +669,89 @@ export default function DashboardPage() {
                 ))}
               </div>
             </div>
+
+            {/* ── Tugas menulis (satu kartu per ujian) ── */}
+            {tugasList.length > 0 && (
+              <div>
+                <div className="mb-4 flex items-center gap-2">
+                  <span style={{ fontSize: "11px", fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--pp-muted)" }}>
+                    Tugas menulis Anda
+                  </span>
+                  <div style={{ flex: 1, height: "1px", backgroundColor: "var(--pp-line)" }} />
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {tugasList.map(t => {
+                    const pct = t.target_bank > 0
+                      ? Math.min(100, Math.round((t.total_soal / t.target_bank) * 100))
+                      : 0
+                    return (
+                      <div
+                        key={t.ujian_id}
+                        className="rounded-[18px] shadow-hard-md p-4"
+                        style={{ backgroundColor: "var(--pp-card)", border: "1.5px solid var(--pp-ink)" }}
+                      >
+                        <div className="flex items-start justify-between gap-2 mb-2">
+                          <div className="font-semibold text-sm" style={{ color: "var(--pp-ink)" }}>
+                            {labelUjian(t)}
+                          </div>
+                          <span
+                            className="text-xs px-2 py-0.5 rounded-full shrink-0 font-semibold"
+                            style={{
+                              backgroundColor: t.matrix_submitted ? "var(--pp-mint)" : "var(--pp-lemon)",
+                              color: "var(--pp-ink)",
+                              border: "1px solid var(--pp-ink)",
+                            }}
+                          >
+                            {t.matrix_submitted ? "Matrix terkunci" : "Matrix belum disubmit"}
+                          </span>
+                        </div>
+
+                        <div className="text-xs mb-2" style={{ color: "var(--pp-muted)" }}>
+                          {t.target_bank > 0
+                            ? `${t.total_soal} dari ${t.target_bank} soal disiapkan`
+                            : "Target belum ditetapkan admin"}
+                        </div>
+
+                        {t.target_bank > 0 && (
+                          <div style={{ height: 8, backgroundColor: "var(--pp-bg)", borderRadius: 999, border: "1px solid var(--pp-line)", overflow: "hidden" }}>
+                            <div style={{ width: `${pct}%`, height: "100%", backgroundColor: pct >= 100 ? "#34A86E" : "var(--pp-primary)" }} />
+                          </div>
+                        )}
+
+                        <div className="flex gap-2 mt-3">
+                          <button
+                            onClick={() => {
+                              localStorage.setItem("psat_ujian_id", t.ujian_id)
+                              router.push("/dashboard/matrix")
+                            }}
+                            className="text-xs font-semibold px-3 py-1.5 rounded-full"
+                            style={{ backgroundColor: "var(--pp-card)", color: "var(--pp-ink)", border: "1.5px solid var(--pp-ink)", boxShadow: "2px 2px 0 0 var(--pp-ink)" }}
+                          >
+                            Matrix
+                          </button>
+                          <button
+                            onClick={() => {
+                              if (!t.matrix_submitted) { alert("Submit matrix ujian ini dulu sebelum input soal!"); return }
+                              localStorage.setItem("psat_ujian_id", t.ujian_id)
+                              router.push("/dashboard/soal")
+                            }}
+                            className="text-xs font-semibold px-3 py-1.5 rounded-full"
+                            style={{
+                              backgroundColor: t.matrix_submitted ? "var(--pp-ink)" : "var(--pp-bg)",
+                              color: t.matrix_submitted ? "#fff" : "var(--pp-muted)",
+                              border: "1.5px solid var(--pp-ink)",
+                              cursor: t.matrix_submitted ? "pointer" : "not-allowed",
+                            }}
+                          >
+                            Input Soal
+                          </button>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
 
             {/* Tips */}
             {!hasMatrix && (

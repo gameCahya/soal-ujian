@@ -6,6 +6,7 @@ import { ArrowLeft, Trash2, LockOpen, Users } from "lucide-react"
 import ThemeToggle from "@/components/ThemeToggle"
 import Toast from "@/components/Toast"
 import { supabase } from "@/lib/supabase"
+import { ambilUjianPsat, labelUjian, type UjianPsat } from "@/lib/ujian"
 
 interface MatrixBab {
   profile_id: string
@@ -14,7 +15,9 @@ interface MatrixBab {
 }
 
 interface GuruGroup {
+  key: string           // profile_id + ujian_id
   profile_id: string
+  ujian_id: string | null
   nama: string
   email: string
   mapel_nama: string
@@ -36,38 +39,42 @@ export default function AdminMatrixPage() {
 
       const { data: matrixRows } = await supabase
         .from("psat_matrix_input")
-        .select("profile_id, mapel_id, bab_id_text, is_submitted")
+        .select("profile_id, ujian_id, bab_id_text, is_submitted")
         .order("profile_id")
 
       if (!matrixRows || matrixRows.length === 0) { setLoading(false); return }
 
       const profileIds = [...new Set(matrixRows.map(r => r.profile_id))]
-      const mapelIds = [...new Set(matrixRows.map(r => r.mapel_id).filter(Boolean))] as string[]
 
-      const [{ data: profiles }, { data: mapels }] = await Promise.all([
+      const [{ data: profiles }, ujianList] = await Promise.all([
         supabase.from("profiles").select("id, nama, email").in("id", profileIds),
-        supabase.from("mata_pelajaran").select("id, nama").in("id", mapelIds),
+        ambilUjianPsat().catch(() => [] as UjianPsat[]),
       ])
 
       const profileMap: Record<string, { nama: string; email: string }> = {}
       profiles?.forEach(p => { profileMap[p.id] = { nama: p.nama || p.email || "Unknown", email: p.email || "" } })
 
-      const mapelMap: Record<string, string> = {}
-      mapels?.forEach(m => { mapelMap[m.id] = m.nama })
+      const ujianMap: Record<string, string> = {}
+      ujianList.forEach(u => { ujianMap[u.ujian_id] = labelUjian(u) })
 
+      // Satu guru bisa punya matrix di lebih dari satu ujian, jadi dikelompokkan
+      // per (guru × ujian) — bukan per guru saja seperti sebelumnya.
       const groupMap: Record<string, GuruGroup> = {}
       matrixRows.forEach(row => {
-        if (!groupMap[row.profile_id]) {
+        const key = `${row.profile_id}|${row.ujian_id ?? "-"}`
+        if (!groupMap[key]) {
           const profile = profileMap[row.profile_id] || { nama: "Unknown", email: "" }
-          groupMap[row.profile_id] = {
+          groupMap[key] = {
+            key,
             profile_id: row.profile_id,
+            ujian_id: row.ujian_id ?? null,
             nama: profile.nama,
             email: profile.email,
-            mapel_nama: row.mapel_id ? (mapelMap[row.mapel_id] || "-") : "-",
+            mapel_nama: row.ujian_id ? (ujianMap[row.ujian_id] || "-") : "-",
             babs: [],
           }
         }
-        groupMap[row.profile_id].babs.push({
+        groupMap[key].babs.push({
           profile_id: row.profile_id,
           bab_id_text: row.bab_id_text,
           is_submitted: row.is_submitted,
@@ -85,21 +92,22 @@ export default function AdminMatrixPage() {
     setTimeout(() => setToast(null), 3000)
   }
 
-  const handleDeleteBab = async (profileId: string, babIdText: string) => {
-    if (!confirm(`Hapus bab "${babIdText}"?`)) return
-    const key = `${profileId}:${babIdText}`
-    setDeleting(key)
-    const { error } = await supabase
-      .from("psat_matrix_input")
-      .delete()
-      .eq("profile_id", profileId)
+  // Semua aksi di bawah dibatasi ke satu ujian. Tanpa itu, membuka kunci
+  // matrix Matematika kelas 7 ikut membuka matrix kelas 8 milik guru yang sama.
+  const handleDeleteBab = async (group: GuruGroup, babIdText: string) => {
+    if (!confirm(`Hapus bab "${babIdText}" pada ${group.mapel_nama}?`)) return
+    setDeleting(`${group.key}:${babIdText}`)
+    let q = supabase.from("psat_matrix_input").delete()
+      .eq("profile_id", group.profile_id)
       .eq("bab_id_text", babIdText)
+    q = group.ujian_id ? q.eq("ujian_id", group.ujian_id) : q.is("ujian_id", null)
+    const { error } = await q
     if (error) {
       showToast("Error: " + error.message, "error")
     } else {
       setGroups(prev =>
         prev
-          .map(g => g.profile_id === profileId ? { ...g, babs: g.babs.filter(b => b.bab_id_text !== babIdText) } : g)
+          .map(g => g.key === group.key ? { ...g, babs: g.babs.filter(b => b.bab_id_text !== babIdText) } : g)
           .filter(g => g.babs.length > 0)
       )
       showToast(`Bab "${babIdText}" dihapus`, "success")
@@ -107,33 +115,35 @@ export default function AdminMatrixPage() {
     setDeleting(null)
   }
 
-  const handleDeleteGuru = async (profileId: string, nama: string) => {
-    if (!confirm(`Hapus SEMUA matrix milik "${nama}"? Tindakan ini tidak dapat dibatalkan.`)) return
-    setDeleting(profileId)
-    const { error } = await supabase.from("psat_matrix_input").delete().eq("profile_id", profileId)
+  const handleDeleteGuru = async (group: GuruGroup) => {
+    if (!confirm(`Hapus SEMUA matrix "${group.nama}" untuk ${group.mapel_nama}? Tindakan ini tidak dapat dibatalkan.`)) return
+    setDeleting(group.key)
+    let q = supabase.from("psat_matrix_input").delete().eq("profile_id", group.profile_id)
+    q = group.ujian_id ? q.eq("ujian_id", group.ujian_id) : q.is("ujian_id", null)
+    const { error } = await q
     if (error) {
       showToast("Error: " + error.message, "error")
     } else {
-      setGroups(prev => prev.filter(g => g.profile_id !== profileId))
-      showToast(`Semua matrix ${nama} dihapus`, "success")
+      setGroups(prev => prev.filter(g => g.key !== group.key))
+      showToast(`Matrix ${group.nama} — ${group.mapel_nama} dihapus`, "success")
     }
     setDeleting(null)
   }
 
-  const handleUnlockGuru = async (profileId: string, nama: string) => {
-    if (!confirm(`Buka kunci edit matrix milik "${nama}"?`)) return
-    setUnlocking(profileId)
-    const { error } = await supabase
-      .from("psat_matrix_input")
-      .update({ is_submitted: false })
-      .eq("profile_id", profileId)
+  const handleUnlockGuru = async (group: GuruGroup) => {
+    if (!confirm(`Buka kunci edit matrix "${group.nama}" untuk ${group.mapel_nama}?`)) return
+    setUnlocking(group.key)
+    let q = supabase.from("psat_matrix_input").update({ is_submitted: false })
+      .eq("profile_id", group.profile_id)
+    q = group.ujian_id ? q.eq("ujian_id", group.ujian_id) : q.is("ujian_id", null)
+    const { error } = await q
     if (error) {
       showToast("Error: " + error.message, "error")
     } else {
       setGroups(prev => prev.map(g =>
-        g.profile_id === profileId ? { ...g, babs: g.babs.map(b => ({ ...b, is_submitted: false })) } : g
+        g.key === group.key ? { ...g, babs: g.babs.map(b => ({ ...b, is_submitted: false })) } : g
       ))
-      showToast(`Matrix ${nama} dibuka untuk diedit ulang`, "success")
+      showToast(`Matrix ${group.nama} — ${group.mapel_nama} dibuka untuk diedit ulang`, "success")
     }
     setUnlocking(null)
   }
@@ -214,7 +224,7 @@ export default function AdminMatrixPage() {
             const submittedCount = group.babs.filter(b => b.is_submitted).length
             return (
               <div
-                key={group.profile_id}
+                key={group.key}
                 style={{
                   backgroundColor: "var(--pp-card)",
                   border: "1.5px solid var(--pp-ink)",
@@ -269,8 +279,8 @@ export default function AdminMatrixPage() {
                     </span>
                     {group.babs.some(b => b.is_submitted) && (
                       <button
-                        onClick={() => handleUnlockGuru(group.profile_id, group.nama)}
-                        disabled={unlocking === group.profile_id}
+                        onClick={() => handleUnlockGuru(group)}
+                        disabled={unlocking === group.key}
                         className="flex items-center gap-1.5 px-3 py-1.5 rounded-[8px] text-xs font-semibold disabled:opacity-50"
                         style={{
                           backgroundColor: "var(--pp-lemon)",
@@ -284,8 +294,8 @@ export default function AdminMatrixPage() {
                       </button>
                     )}
                     <button
-                      onClick={() => handleDeleteGuru(group.profile_id, group.nama)}
-                      disabled={deleting === group.profile_id}
+                      onClick={() => handleDeleteGuru(group)}
+                      disabled={deleting === group.key}
                       className="flex items-center gap-1.5 px-3 py-1.5 rounded-[8px] text-xs font-semibold disabled:opacity-50"
                       style={{
                         backgroundColor: "var(--pp-pink)",
@@ -303,7 +313,7 @@ export default function AdminMatrixPage() {
                 {/* Bab list */}
                 <div style={{ padding: "16px 20px" }} className="space-y-2">
                   {group.babs.map((bab, bi) => {
-                    const key = `${bab.profile_id}:${bab.bab_id_text}`
+                    const key = `${group.key}:${bab.bab_id_text}`
                     return (
                       <div
                         key={bab.bab_id_text}
@@ -335,7 +345,7 @@ export default function AdminMatrixPage() {
                           </span>
                         </div>
                         <button
-                          onClick={() => handleDeleteBab(bab.profile_id, bab.bab_id_text)}
+                          onClick={() => handleDeleteBab(group, bab.bab_id_text)}
                           disabled={deleting === key}
                           className="flex items-center gap-1 px-2 py-1.5 rounded-[8px] text-xs font-semibold disabled:opacity-50"
                           style={{

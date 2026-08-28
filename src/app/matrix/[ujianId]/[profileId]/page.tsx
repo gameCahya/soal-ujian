@@ -1,5 +1,6 @@
 import { supabase } from "@/lib/supabase"
 import { ArrowLeft, LayoutGrid, Inbox } from "lucide-react"
+import { labelUjian, type UjianPsat } from "@/lib/ujian"
 
 export const revalidate = 300
 
@@ -11,16 +12,17 @@ interface MatrixRow {
 const TIPE_OPTIONS = ["pilgan", "ceklist", "essay", "isian_singkat"]
 const KESULITAN_OPTIONS = ["mudah", "sedang", "sulit"]
 
-export default async function PublikMatrixPage({ params }: { params: Promise<{ mapelId: string; profileId: string }> }) {
-  const { mapelId, profileId } = await params
+export default async function PublikMatrixPage({ params }: { params: Promise<{ ujianId: string; profileId: string }> }) {
+  const { ujianId, profileId } = await params
 
-  const [matrixRes, mapelRes] = await Promise.all([
-    supabase.rpc("get_public_matrix_by_mapel", { p_mapel_id: mapelId, p_profile_id: profileId }),
-    supabase.from("mata_pelajaran").select("nama, kode").eq("id", mapelId).maybeSingle(),
+  const [matrixRes, ujianRes] = await Promise.all([
+    supabase.rpc("get_public_matrix_by_ujian", { p_ujian_id: ujianId, p_profile_id: profileId }),
+    supabase.rpc("get_ujian_psat"),
   ])
 
   const matrixRows: MatrixRow[] = (matrixRes.data as MatrixRow[]) ?? []
-  const mapelNama = mapelRes.data?.nama ?? "Mata Pelajaran"
+  const ujian = ((ujianRes.data as UjianPsat[]) ?? []).find(u => u.ujian_id === ujianId)
+  const mapelNama = ujian ? labelUjian(ujian) : "Mata Pelajaran"
 
   return (
     <div style={{ backgroundColor: "var(--color-background)", minHeight: "100vh" }}>

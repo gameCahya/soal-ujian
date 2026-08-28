@@ -3,6 +3,7 @@ import {
   Download, LayoutGrid, ArrowRight,
 } from "lucide-react"
 import { supabase } from "@/lib/supabase"
+import type { UjianPsat } from "@/lib/ujian"
 import ThemeToggle from "@/components/ThemeToggle"
 
 export const revalidate = 300
@@ -12,6 +13,8 @@ interface GuruProgress {
   guru_nama: string | null
   guru_kelas: string | null
   guru_unit_sekolah: string | null
+  ujian_id: string
+  ujian_nama: string | null
   mapel_id: string
   mapel_nama: string
   mapel_kode: string | null
@@ -57,8 +60,24 @@ function getBarGradient(pct: number, hasPatokan: boolean): string {
 }
 
 export default async function HomePage() {
+  // Sejak data bercakupan ujian, halaman ini menampilkan satu siklus saja —
+  // yang aktif kalau sudah ada datanya, kalau belum siklus terbaru yang ada.
+  const { data: ujianData } = await supabase.rpc("get_ujian_psat")
+  const semuaUjian: UjianPsat[] = (ujianData as UjianPsat[]) ?? []
+  const siklus = semuaUjian.find(u => u.event_aktif) ?? semuaUjian[0]
+  const ujianSiklus = siklus
+    ? semuaUjian.filter(u => u.event_id === siklus.event_id).map(u => u.ujian_id)
+    : []
+
   const { data, error } = await supabase.rpc("get_public_guru_progress")
-  const rows: GuruProgress[] = (data as GuruProgress[]) ?? []
+  const semuaRows: GuruProgress[] = (data as GuruProgress[]) ?? []
+  const rows = ujianSiklus.length > 0
+    ? semuaRows.filter(r => ujianSiklus.includes(r.ujian_id))
+    : semuaRows
+
+  const labelSiklus = siklus
+    ? [siklus.event_nama, siklus.tahun_ajaran].filter(Boolean).join(" · ")
+    : null
 
   const totalSoal      = rows.reduce((s, r) => s + Number(r.total), 0)
   const totalDraft     = rows.reduce((s, r) => s + Number(r.draft), 0)
@@ -115,7 +134,7 @@ export default async function HomePage() {
                 Portal Validasi Soal PSAT Al Abidin
               </div>
               <div className="text-xs mt-0.5 hidden sm:block" style={{ color: "var(--pp-muted)" }}>
-                Progress upload soal ujian — tahun ajar 2025/2026
+                Progress upload soal ujian{labelSiklus ? ` — ${labelSiklus}` : ""}
               </div>
             </div>
           </div>
@@ -326,7 +345,7 @@ export default async function HomePage() {
                       <div className="flex items-center gap-1.5">
                         <IconBtn href={row.glossary_url} title="Download Glossary" newTab><Download className="w-3.5 h-3.5" /></IconBtn>
                         <IconBtn href={row.kisi_kisi_url} title="Download Kisi-kisi" newTab><Download className="w-3.5 h-3.5" /></IconBtn>
-                        <IconBtn href={row.has_matrix ? `/matrix/${row.mapel_id}/${row.profile_id}` : null} title="Lihat Matrix"><LayoutGrid className="w-3.5 h-3.5" /></IconBtn>
+                        <IconBtn href={row.has_matrix ? `/matrix/${row.ujian_id}/${row.profile_id}` : null} title="Lihat Matrix"><LayoutGrid className="w-3.5 h-3.5" /></IconBtn>
                       </div>
                     </div>
                   )
@@ -429,7 +448,7 @@ export default async function HomePage() {
                             <div className="flex items-center gap-1.5">
                               <IconBtn href={row.glossary_url} title="Download Glossary" newTab><Download className="w-3.5 h-3.5" /></IconBtn>
                               <IconBtn href={row.kisi_kisi_url} title="Download Kisi-kisi" newTab><Download className="w-3.5 h-3.5" /></IconBtn>
-                              <IconBtn href={row.has_matrix ? `/matrix/${row.mapel_id}/${row.profile_id}` : null} title="Lihat Matrix"><LayoutGrid className="w-3.5 h-3.5" /></IconBtn>
+                              <IconBtn href={row.has_matrix ? `/matrix/${row.ujian_id}/${row.profile_id}` : null} title="Lihat Matrix"><LayoutGrid className="w-3.5 h-3.5" /></IconBtn>
                             </div>
                           </td>
                         </tr>
