@@ -49,3 +49,5 @@ supabase/.temp
 scripts/
 .kilo
 
+# graphify (knowledge graph output)
+/graphify-out/
