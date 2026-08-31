@@ -219,7 +219,12 @@ BEGIN
     RAISE EXCEPTION 'Tidak terautentikasi.' USING HINT = 'tidak-login';
   END IF;
 
-  v_role    := psat.current_user_role();
+  -- COALESCE wajib: current_user_role() mengembalikan NULL untuk siapa pun yang
+  -- tidak punya baris aktif di public.profiles — dan itu BUKAN kasus teoretis,
+  -- kedua penulis matriks ICT PROGUL memang tidak ada di sana. Tanpa COALESCE,
+  -- `NULL <> 'admin'` bernilai NULL, `TRUE AND NULL` bukan TRUE, dan penjaganya
+  -- diam-diam tidak menyala.
+  v_role    := COALESCE(psat.current_user_role()::text, '');
   v_profile := COALESCE(p_profile_id, v_aktor);
 
   IF v_profile <> v_aktor AND v_role <> 'admin' THEN
