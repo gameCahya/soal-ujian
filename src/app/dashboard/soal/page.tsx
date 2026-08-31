@@ -22,7 +22,7 @@ interface BabMatrix {
   data: Record<string, number>
 }
 
-const TIPE_OPTIONS = ["pilgan", "ceklist", "essay", "isian_singkat"]
+const TIPE_OPTIONS = ["pilgan", "ceklist", "essay", "isian_singkat", "benar_salah"]
 const KESULITAN_OPTIONS = ["mudah", "sedang", "sulit"]
 
 const TIPE_LABELS: Record<string, string> = {
@@ -30,6 +30,7 @@ const TIPE_LABELS: Record<string, string> = {
   ceklist: "Ceklist",
   essay: "Essay",
   isian_singkat: "Isian Singkat",
+  benar_salah: "Benar/Salah",
 }
 
 const TIPE_COLORS: Record<string, { bg: string; accent: string }> = {
@@ -37,6 +38,7 @@ const TIPE_COLORS: Record<string, { bg: string; accent: string }> = {
   ceklist:       { bg: "#DAF5E7", accent: "#15803d" },
   essay:         { bg: "#FFE3D0", accent: "#c2410c" },
   isian_singkat: { bg: "#FFF5C6", accent: "#92400e" },
+  benar_salah:   { bg: "#D8ECFF", accent: "#1d4ed8" },
 }
 
 const KESULITAN_COLORS: Record<string, { bg: string; text: string }> = {
@@ -57,6 +59,7 @@ const BOBOT_DEFAULT: Record<string, Record<string, number>> = {
   ceklist:       { mudah: 1.5, sedang: 2.0, sulit: 2.5 },
   essay:         { mudah: 2.0, sedang: 3.0, sulit: 4.0 },
   isian_singkat: { mudah: 1.0, sedang: 1.5, sulit: 2.0 },
+  benar_salah:   { mudah: 1.0, sedang: 1.0, sulit: 1.5 },
 }
 
 type BobotConfig = Record<string, number>

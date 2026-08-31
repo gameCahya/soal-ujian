@@ -9,7 +9,7 @@ interface MatrixRow {
   data: Record<string, number>
 }
 
-const TIPE_OPTIONS = ["pilgan", "ceklist", "essay", "isian_singkat"]
+const TIPE_OPTIONS = ["pilgan", "ceklist", "essay", "isian_singkat", "benar_salah"]
 const KESULITAN_OPTIONS = ["mudah", "sedang", "sulit"]
 
 export default async function PublikMatrixPage({ params }: { params: Promise<{ ujianId: string; profileId: string }> }) {
