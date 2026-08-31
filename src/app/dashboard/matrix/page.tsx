@@ -17,6 +17,7 @@ import {
   ambilTugasMenulis,
   ambilPatokanUjian,
   ambilBabUjian,
+  buatBabUjian,
   pesanError,
   type TugasMenulis,
   type BabUjian,
@@ -58,6 +59,9 @@ export default function MatrixPage() {
   const [saving, setSaving] = useState(false)
   const [isAdding, setIsAdding] = useState(false)
   const [newBabName, setNewBabName] = useState("")
+  /** Nama bab baru yang diketik guru saat babnya belum ada di LMS. */
+  const [babBaruNama, setBabBaruNama] = useState("")
+  const [membuatBab, setMembuatBab] = useState(false)
   const [editingBab, setEditingBab] = useState<string | null>(null)
   const [editBabName, setEditBabName] = useState("")
   const [guruNama, setGuruNama] = useState("")
@@ -293,12 +297,13 @@ export default function MatrixPage() {
     return errors
   }
 
-  const handleAddBab = async () => {
-    if (!newBabName.trim() || !user) return
-    if (!tugasAktif) return
-    // newBabName kini berisi bab_id hasil pilihan, bukan teks bebas.
-    const dipilih = babSaran.find(b => b.bab_id === newBabName)
-    if (!dipilih) { showToast("Pilih bab dari daftar", "error"); return }
+  /** Sisipkan satu bab (yang sudah punya bab_id LMS) ke matriks guru. */
+  const pasangBab = async (dipilih: { bab_id: string; nama_bab: string }) => {
+    if (!user || !tugasAktif) return
+    if (babs.some(b => b.bab_id === dipilih.bab_id)) {
+      showToast("Bab itu sudah ada di matriks Anda", "error")
+      return
+    }
     const { error } = await supabase.from("psat_matrix_input").insert({
       profile_id: user.id, mapel_id: guruMapelId, ujian_id: tugasAktif.ujian_id,
       bab_id_text: dipilih.nama_bab, bab_id: dipilih.bab_id,
@@ -308,7 +313,39 @@ export default function MatrixPage() {
     setBabs(prev => [...prev, { id: dipilih.nama_bab, nama_bab: dipilih.nama_bab, bab_id: dipilih.bab_id, is_submitted: false }])
     setMatrixDataSync({ ...matrixDataRef.current, [dipilih.nama_bab]: { ...INITIAL_DATA } })
     setNewBabName("")
+    setBabBaruNama("")
     setIsAdding(false)
+  }
+
+  const handleAddBab = async () => {
+    if (!newBabName || !tugasAktif) { showToast("Pilih bab dari daftar", "error"); return }
+    const dipilih = babSaran.find(b => b.bab_id === newBabName)
+    if (!dipilih) { showToast("Pilih bab dari daftar", "error"); return }
+    await pasangBab(dipilih)
+  }
+
+  /**
+   * Buat bab baru di LMS lalu langsung pasang ke matriks.
+   *
+   * Dropdown bab diisi dari bab_pelajaran milik LMS. Sebelum ini, guru mentok
+   * bila babnya belum ada di sana — PSAT tidak punya jalur menulis bab sama
+   * sekali. RPC-nya bersifat ambil-atau-buat, jadi menekan tombol dua kali
+   * tidak menggandakan bab.
+   */
+  const handleBuatBab = async () => {
+    const nama = babBaruNama.trim()
+    if (!nama || !tugasAktif) return
+    setMembuatBab(true)
+    try {
+      const hasil = await buatBabUjian(tugasAktif.ujian_id, nama)
+      setBabSaran(await ambilBabUjianAman(tugasAktif.ujian_id))
+      if (hasil.sudah_ada) showToast(`Bab "${hasil.nama_bab}" sudah ada — dipakai yang itu`, "success")
+      await pasangBab({ bab_id: hasil.bab_id, nama_bab: hasil.nama_bab })
+    } catch (e) {
+      showToast("Gagal membuat bab: " + pesanError(e), "error")
+    } finally {
+      setMembuatBab(false)
+    }
   }
 
   const handleDeleteBab = async (babId: string) => {
@@ -853,7 +890,35 @@ export default function MatrixPage() {
                       ))}
                   </select>
                   <button onClick={handleAddBab} className="font-bold" style={{ color: "#15803d" }}>✓</button>
-                  <button onClick={() => { setIsAdding(false); setNewBabName("") }} style={{ color: "var(--pp-muted)" }}>×</button>
+                  <button onClick={() => { setIsAdding(false); setNewBabName(""); setBabBaruNama("") }} style={{ color: "var(--pp-muted)" }}>×</button>
+
+                  {/* Babnya belum ada di LMS? Buat dari sini — tanpa ini guru
+                      mentok, karena dropdown hanya berisi bab_pelajaran LMS. */}
+                  <span className="text-xs" style={{ color: "var(--pp-muted)" }}>atau</span>
+                  <input
+                    type="text"
+                    value={babBaruNama}
+                    onChange={e => setBabBaruNama(e.target.value)}
+                    onKeyDown={e => { if (e.key === "Enter" && !membuatBab) handleBuatBab() }}
+                    placeholder="bab baru…"
+                    disabled={membuatBab}
+                    className="px-3 py-1.5 text-sm w-36"
+                    style={{
+                      border: "1.5px dashed var(--pp-ink)",
+                      borderRadius: 20,
+                      color: "var(--pp-ink)",
+                      backgroundColor: "var(--pp-card)",
+                      outline: "none",
+                    }}
+                  />
+                  <button
+                    onClick={handleBuatBab}
+                    disabled={membuatBab || !babBaruNama.trim()}
+                    className="font-bold text-sm"
+                    style={{ color: babBaruNama.trim() ? "#1d4ed8" : "var(--pp-muted)" }}
+                  >
+                    {membuatBab ? "…" : "+ buat"}
+                  </button>
                 </div>
               ) : (
                 <button

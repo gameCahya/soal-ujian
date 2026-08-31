@@ -258,3 +258,31 @@ export async function tetapkanPenulis(ujianId: string, profileId: string | null,
     .upsert({ ujian_id: ujianId, profile_id: profileId, ditetapkan_oleh: oleh }, { onConflict: "ujian_id" })
   if (error) throw error
 }
+
+/** Hasil pembuatan bab dari halaman Matrix. */
+export interface BabDibuat {
+  bab_id: string
+  nama_bab: string
+  urutan: number | null
+  /** true bila nama itu sudah ada — dikembalikan apa adanya, tidak digandakan. */
+  sudah_ada: boolean
+}
+
+/**
+ * Buat bab tingkat mapel dari PSAT.
+ *
+ * Perlu RPC karena klien PSAT terikat schema `psat` dan tidak bisa menulis
+ * public.bab_pelajaran langsung. Bab sengaja tingkat mapel (ujian_id NULL)
+ * supaya bisa dipakai ulang ujian lain pada mapel yang sama — sama seperti
+ * yang sudah dilakukan public.impor_soal_psat.
+ */
+export async function buatBabUjian(ujianId: string, namaBab: string): Promise<BabDibuat> {
+  const { data, error } = await supabase.rpc("buat_bab_ujian", {
+    p_ujian_id: ujianId,
+    p_nama_bab: namaBab,
+  })
+  if (error) throw error
+  const baris = (data as BabDibuat[] | null)?.[0]
+  if (!baris) throw new Error("Bab tidak terbuat")
+  return baris
+}
