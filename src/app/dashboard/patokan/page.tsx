@@ -11,14 +11,19 @@ import {
   KESULITAN_OPTIONS,
   TIPE_LABELS,
   KESULITAN_LABELS,
+  TIPE_COLORS,
+  BOBOT_DEFAULT,
   gridKosong,
   labelUjian,
   ambilUjianAktif,
+  ambilCalonPenulis,
+  tetapkanPenulis,
   simpanPatokanUjian,
   validasiGridTarget,
   pesanError,
   type UjianAktif,
   type PatokanUjianRow,
+  type CalonPenulis,
 } from "@/lib/ujian"
 
 interface MataPelajaran {
@@ -27,19 +32,7 @@ interface MataPelajaran {
   kode: string | null
 }
 
-const TIPE_COLORS: Record<string, { bg: string; accent: string }> = {
-  pilgan:        { bg: "#ECE4FF", accent: "#6d28d9" },
-  ceklist:       { bg: "#DAF5E7", accent: "#15803d" },
-  isian_singkat: { bg: "#FFF5C6", accent: "#92400e" },
-  essay:         { bg: "#FFE3D0", accent: "#c2410c" },
-}
-
-const BOBOT_DEFAULT: Record<string, Record<string, number>> = {
-  pilgan:        { mudah: 1.0, sedang: 1.5, sulit: 2.0 },
-  ceklist:       { mudah: 1.5, sedang: 2.0, sulit: 2.5 },
-  isian_singkat: { mudah: 1.0, sedang: 1.5, sulit: 2.0 },
-  essay:         { mudah: 2.0, sedang: 3.0, sulit: 4.0 },
-}
+// TIPE_COLORS & BOBOT_DEFAULT dipakai dari lib/ujian.
 
 type PatokanMap = Record<string, Record<string, number>>
 type BobotMap = Record<string, Record<string, number>>
@@ -67,6 +60,9 @@ export default function AdminPage() {
   const [patokanMap, setPatokanMap] = useState<PatokanMap>({})
   const [saving, setSaving] = useState(false)
   const [savePressed, setSavePressed] = useState(false)
+  /** Calon penulis + penunjukan yang berlaku, per ujian. */
+  const [calonPenulis, setCalonPenulis] = useState<Record<string, CalonPenulis[]>>({})
+  const [menyimpanPenulis, setMenyimpanPenulis] = useState<string | null>(null)
 
   const [bobotMap, setBobotMap] = useState<BobotMap>({})
   const [customBobotMapels, setCustomBobotMapels] = useState<Set<string>>(new Set())
@@ -75,6 +71,31 @@ export default function AdminPage() {
   const [showCopyModal, setShowCopyModal] = useState(false)
   const [copyTargets, setCopyTargets] = useState<Set<string>>(new Set())
   const [copyingBobot, setCopyingBobot] = useState(false)
+
+  /** Muat calon penulis tiap ujian sekali daftar ujian siap. */
+  const muatCalonPenulis = async (daftar: UjianAktif[]) => {
+    const hasil: Record<string, CalonPenulis[]> = {}
+    await Promise.all(daftar.map(async u => {
+      try { hasil[u.ujian_id] = await ambilCalonPenulis(u.ujian_id) } catch { hasil[u.ujian_id] = [] }
+    }))
+    setCalonPenulis(hasil)
+  }
+
+  const ubahPenulis = async (ujianId: string, profileId: string) => {
+    setMenyimpanPenulis(ujianId)
+    try {
+      await tetapkanPenulis(ujianId, profileId || null, user?.id ?? null)
+      setCalonPenulis(prev => ({
+        ...prev,
+        [ujianId]: (prev[ujianId] || []).map(c => ({ ...c, ditunjuk: c.profile_id === profileId })),
+      }))
+      setToast({ message: profileId ? "Penulis ditetapkan" : "Penunjukan dilepas", type: "success" })
+    } catch (e) {
+      setToast({ message: "Gagal: " + pesanError(e), type: "error" })
+    } finally {
+      setMenyimpanPenulis(null)
+    }
+  }
 
   useEffect(() => {
     async function load() {
@@ -95,6 +116,7 @@ export default function AdminPage() {
         setToast({ message: "Gagal memuat daftar ujian: " + pesanError(e), type: "error" })
       }
       setUjianList(ujians)
+      void muatCalonPenulis(ujians)
 
       const pMap: PatokanMap = {}
       ujians.forEach(u => { pMap[u.ujian_id] = buildEmpty() })
@@ -452,6 +474,41 @@ export default function AdminPage() {
                                     {ujian.kelas_list.join(", ")}
                                   </div>
                                 )}
+
+                                {/* Penanggung jawab matriks. Tanpa ini, SEMUA guru
+                                    mapel+tingkat ini mengisi matriksnya sendiri dan
+                                    jumlahnya berlipat sebanyak jumlah guru. */}
+                                <div className="mt-2 font-normal">
+                                  <label className="block text-[11px] mb-0.5" style={{ color: "var(--pp-muted)" }}>
+                                    Penulis matriks
+                                  </label>
+                                  <select
+                                    value={(calonPenulis[ujian.ujian_id] || []).find(c => c.ditunjuk)?.profile_id ?? ""}
+                                    disabled={menyimpanPenulis === ujian.ujian_id}
+                                    onChange={e => ubahPenulis(ujian.ujian_id, e.target.value)}
+                                    className="text-xs px-2 py-1 w-full max-w-[200px]"
+                                    style={{
+                                      border: "1px solid var(--pp-ink)",
+                                      borderRadius: 10,
+                                      backgroundColor: "var(--pp-card)",
+                                      color: "var(--pp-ink)",
+                                    }}
+                                  >
+                                    <option value="">— belum ditunjuk —</option>
+                                    {(calonPenulis[ujian.ujian_id] || []).map(c => (
+                                      <option key={c.profile_id} value={c.profile_id}>
+                                        {c.nama || c.profile_id.slice(0, 8)}{c.sudah_isi ? " • sudah mengisi" : ""}
+                                      </option>
+                                    ))}
+                                  </select>
+                                  {(calonPenulis[ujian.ujian_id]?.filter(c => c.sudah_isi).length ?? 0) > 1 &&
+                                   !(calonPenulis[ujian.ujian_id] || []).some(c => c.ditunjuk) && (
+                                    <div className="text-[11px] mt-1" style={{ color: "#b45309" }}>
+                                      {calonPenulis[ujian.ujian_id].filter(c => c.sudah_isi).length} guru sudah mengisi —
+                                      tunjuk satu, kalau tidak matriksnya tidak bisa dikirim ke LMS.
+                                    </div>
+                                  )}
+                                </div>
                               </td>
                             )}
                             <td
@@ -766,7 +823,7 @@ export default function AdminPage() {
             <p className="text-sm font-display font-semibold mb-3" style={{ color: "var(--pp-ink)" }}>
               Ringkasan ({customBobotMapels.size} dari {mataPelajaran.length} mapel dikustomisasi)
             </p>
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2">
               {mataPelajaran.map(m => {
                 const isSelected = selectedBobotMapel === m.id
                 const isKustom = customBobotMapels.has(m.id)

@@ -22,14 +22,22 @@ interface BabMatrix {
   data: Record<string, number>
 }
 
-const TIPE_OPTIONS = ["pilgan", "ceklist", "essay", "isian_singkat"]
+const TIPE_OPTIONS = ["pilgan", "ceklist", "essay", "isian_singkat", "benar_salah"]
 const KESULITAN_OPTIONS = ["mudah", "sedang", "sulit"]
+
+/** Tipe yang punya daftar pilihan jawaban. */
+const punyaPilihan = (t: string) => t === "pilgan" || t === "ceklist" || t === "benar_salah"
+/** Tipe dengan tepat SATU jawaban benar (radio, bukan ceklist). */
+const satuJawaban = (t: string) => t === "pilgan" || t === "benar_salah"
+/** Pilihan tetap untuk benar_salah — guru tidak perlu mengetiknya. */
+const PILIHAN_BENAR_SALAH = ["Benar", "Salah"]
 
 const TIPE_LABELS: Record<string, string> = {
   pilgan: "Pilgan",
   ceklist: "Ceklist",
   essay: "Essay",
   isian_singkat: "Isian Singkat",
+  benar_salah: "Benar/Salah",
 }
 
 const TIPE_COLORS: Record<string, { bg: string; accent: string }> = {
@@ -37,6 +45,7 @@ const TIPE_COLORS: Record<string, { bg: string; accent: string }> = {
   ceklist:       { bg: "#DAF5E7", accent: "#15803d" },
   essay:         { bg: "#FFE3D0", accent: "#c2410c" },
   isian_singkat: { bg: "#FFF5C6", accent: "#92400e" },
+  benar_salah:   { bg: "#D8ECFF", accent: "#1d4ed8" },
 }
 
 const KESULITAN_COLORS: Record<string, { bg: string; text: string }> = {
@@ -57,6 +66,7 @@ const BOBOT_DEFAULT: Record<string, Record<string, number>> = {
   ceklist:       { mudah: 1.5, sedang: 2.0, sulit: 2.5 },
   essay:         { mudah: 2.0, sedang: 3.0, sulit: 4.0 },
   isian_singkat: { mudah: 1.0, sedang: 1.5, sulit: 2.0 },
+  benar_salah:   { mudah: 1.0, sedang: 1.0, sulit: 1.5 },
 }
 
 type BobotConfig = Record<string, number>
@@ -386,7 +396,7 @@ export default function SoalPage() {
 
     setSaving(true)
 
-    const pilihanObj = (selectedTipe === "pilgan" || selectedTipe === "ceklist")
+    const pilihanObj = punyaPilihan(selectedTipe)
       ? pilihan.map((p, i) => ({
           id: i,
           teks: p,
@@ -408,7 +418,7 @@ export default function SoalPage() {
         tingkat_kesulitan: selectedKesulitan,
         pilihan: pilihanObj,
         pilihan_gambar: pilihanGambar,
-        jawaban_benar: selectedTipe === "pilgan" ? jawabanBenar : null,
+        jawaban_benar: satuJawaban(selectedTipe) ? jawabanBenar : null,
         updated_at: new Date().toISOString(),
       }).eq("id", editingId)
       err = error
@@ -425,7 +435,7 @@ export default function SoalPage() {
         tingkat_kesulitan: selectedKesulitan,
         pilihan: pilihanObj,
         pilihan_gambar: pilihanGambar,
-        jawaban_benar: selectedTipe === "pilgan" ? jawabanBenar : null,
+        jawaban_benar: satuJawaban(selectedTipe) ? jawabanBenar : null,
         gambar_url: gambarUrl || null,
       })
       err = error
@@ -488,7 +498,7 @@ export default function SoalPage() {
 
     if (soalData.pilihan) {
       setPilihan(soalData.pilihan.map((p: any) => p.teks || ""))
-      if (soalData.tipe === "pilgan") {
+      if (satuJawaban(soalData.tipe)) {
         const idx = soalData.pilihan.findIndex((p: any) => p.benar)
         if (idx >= 0) setJawabanBenar(idx)
       } else if (soalData.tipe === "ceklist") {
@@ -549,11 +559,11 @@ export default function SoalPage() {
   const validateBatchItem = (item: any, idx: number): string[] => {
     const errs: string[] = []
     if (!item.pertanyaan?.trim()) errs.push(`#${idx + 1}: pertanyaan wajib diisi`)
-    if (!TIPE_OPTIONS.includes(item.tipe)) errs.push(`#${idx + 1}: tipe tidak valid — "${item.tipe}" (pilgan/ceklist/essay/isian_singkat)`)
+    if (!TIPE_OPTIONS.includes(item.tipe)) errs.push(`#${idx + 1}: tipe tidak valid — "${item.tipe}" (pilgan/ceklist/essay/isian_singkat/benar_salah)`)
     if (!KESULITAN_OPTIONS.includes(item.tingkat_kesulitan)) errs.push(`#${idx + 1}: tingkat_kesulitan tidak valid — "${item.tingkat_kesulitan}" (mudah/sedang/sulit)`)
     const validBabs = matrixData.map(b => b.bab_id_text)
     if (!validBabs.includes(item.bab_id_text)) errs.push(`#${idx + 1}: bab_id_text tidak ditemukan — "${item.bab_id_text}"`)
-    if ((item.tipe === "pilgan" || item.tipe === "ceklist") && (!Array.isArray(item.pilihan) || item.pilihan.length < 2))
+    if (punyaPilihan(item.tipe) && (!Array.isArray(item.pilihan) || item.pilihan.length < 2))
       errs.push(`#${idx + 1}: pilihan wajib ada minimal 2 item untuk tipe ${item.tipe}`)
     return errs
   }
@@ -599,7 +609,7 @@ export default function SoalPage() {
     if (!user || batchErrors.length > 0 || batchRaw.length === 0) return
     setBatchSaving(true)
     const rows = batchRaw.map((item: any) => {
-      const pilihanObj = (item.tipe === "pilgan" || item.tipe === "ceklist") && Array.isArray(item.pilihan)
+      const pilihanObj = punyaPilihan(item.tipe) && Array.isArray(item.pilihan)
         ? item.pilihan.map((p: any, i: number) => ({ id: p.id ?? i, teks: p.teks, benar: !!p.benar }))
         : null
       const bobotVal = getDefaultBobot(item.tipe, item.tingkat_kesulitan)
@@ -614,7 +624,7 @@ export default function SoalPage() {
         guru_id: user.id,
         bobot: bobotVal,
         pilihan: pilihanObj,
-        jawaban_benar: item.tipe === "pilgan" ? (pilihanObj?.findIndex((p: any) => p.benar) ?? null) : null,
+        jawaban_benar: satuJawaban(item.tipe) ? (pilihanObj?.findIndex((p: any) => p.benar) ?? null) : null,
         status: "draft",
       }
     })
@@ -1196,7 +1206,17 @@ export default function SoalPage() {
                       return (
                         <button
                           key={t}
-                          onClick={() => { setSelectedTipe(t); setBobot(getDefaultBobot(t, selectedKesulitan)) }}
+                          onClick={() => {
+                            setSelectedTipe(t)
+                            setBobot(getDefaultBobot(t, selectedKesulitan))
+                            // Benar/Salah selalu dua pilihan tetap — guru tidak
+                            // perlu (dan tidak boleh) mengetiknya sendiri.
+                            if (t === "benar_salah") {
+                              setPilihan([...PILIHAN_BENAR_SALAH])
+                              setPilihanGambar(["", ""])
+                              setJawabanBenar(0)
+                            }
+                          }}
                           style={{
                             border: "1.5px solid var(--pp-ink)",
                             borderRadius: 20,
@@ -1278,14 +1298,14 @@ export default function SoalPage() {
                 </div>
 
                 {/* Pilihan jawaban */}
-                {(selectedTipe === "pilgan" || selectedTipe === "ceklist") && (
+                {punyaPilihan(selectedTipe) && (
                   <div>
                     <div className="text-xs font-bold uppercase mb-3" style={{ color: "var(--pp-muted)", letterSpacing: "0.1em" }}>
                       Pilihan Jawaban
                     </div>
                     <div className="space-y-3">
                       {pilihan.map((p, i) => {
-                        const isBenar = selectedTipe === "pilgan"
+                        const isBenar = satuJawaban(selectedTipe)
                           ? jawabanBenar === i
                           : jawabanBenarCeklist.includes(i)
                         return (
@@ -1300,7 +1320,7 @@ export default function SoalPage() {
                             }}
                           >
                             <div className="mt-2 shrink-0">
-                              {selectedTipe === "pilgan" ? (
+                              {satuJawaban(selectedTipe) ? (
                                 <input
                                   type="radio"
                                   name="jawabanBenar"

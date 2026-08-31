@@ -27,6 +27,7 @@ const TIPE_LABELS: Record<string, string> = {
   ceklist: "Ceklist",
   essay: "Essay",
   isian_singkat: "Isian Singkat",
+  benar_salah: "Benar/Salah",
 }
 
 const TIPE_COLORS: Record<string, { bg: string; accent: string }> = {
@@ -34,6 +35,7 @@ const TIPE_COLORS: Record<string, { bg: string; accent: string }> = {
   ceklist:       { bg: "#DAF5E7", accent: "#15803d" },
   essay:         { bg: "#FFE3D0", accent: "#c2410c" },
   isian_singkat: { bg: "#FFF5C6", accent: "#92400e" },
+  benar_salah:   { bg: "#D8ECFF", accent: "#1d4ed8" },
 }
 
 const KESULITAN_COLORS: Record<string, { bg: string; text: string }> = {

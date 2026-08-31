@@ -8,7 +8,7 @@ import { supabase } from "@/lib/supabase"
  * lama menyimpan angkanya sebagai CSV posisional. Sekarang satu sumber.
  */
 
-export const TIPE_OPTIONS = ["pilgan", "ceklist", "isian_singkat", "essay"] as const
+export const TIPE_OPTIONS = ["pilgan", "ceklist", "isian_singkat", "essay", "benar_salah"] as const
 export const KESULITAN_OPTIONS = ["mudah", "sedang", "sulit"] as const
 
 export type Tipe = (typeof TIPE_OPTIONS)[number]
@@ -19,6 +19,35 @@ export const TIPE_LABELS: Record<string, string> = {
   ceklist: "Ceklist",
   isian_singkat: "Isian Singkat",
   essay: "Essay",
+  benar_salah: "Benar/Salah",
+}
+
+/**
+ * Warna badge per tipe. Sebelumnya disalin di lima halaman, salah satunya
+ * (matrix) berupa array POSISIONAL sehingga tipe kelima terbaca undefined.
+ */
+export const TIPE_COLORS: Record<string, { bg: string; accent: string }> = {
+  pilgan:        { bg: "#ECE4FF", accent: "#6d28d9" },
+  ceklist:       { bg: "#DAF5E7", accent: "#15803d" },
+  isian_singkat: { bg: "#FFF5C6", accent: "#92400e" },
+  essay:         { bg: "#FFE3D0", accent: "#c2410c" },
+  benar_salah:   { bg: "#D8ECFF", accent: "#1d4ed8" },
+}
+
+/** Dipakai saat kode tipe tak dikenal — jangan biarkan `.bg` jatuh ke undefined. */
+export const WARNA_TIPE_CADANGAN = { bg: "#EEEEEE", accent: "#444444" }
+
+export function warnaTipe(tipe: string) {
+  return TIPE_COLORS[tipe] ?? WARNA_TIPE_CADANGAN
+}
+
+/** Bobot skor awal per tipe × kesulitan. Admin bisa menimpanya di halaman Patokan. */
+export const BOBOT_DEFAULT: Record<string, Record<string, number>> = {
+  pilgan:        { mudah: 1.0, sedang: 1.5, sulit: 2.0 },
+  ceklist:       { mudah: 1.5, sedang: 2.0, sulit: 2.5 },
+  isian_singkat: { mudah: 1.0, sedang: 1.5, sulit: 2.0 },
+  essay:         { mudah: 2.0, sedang: 3.0, sulit: 4.0 },
+  benar_salah:   { mudah: 1.0, sedang: 1.0, sulit: 1.5 },
 }
 
 export const KESULITAN_LABELS: Record<string, string> = {
@@ -194,4 +223,38 @@ export function validasiGridTarget(grid: GridAngka): string[] {
     }),
   )
   return errors
+}
+
+/** Calon penulis satu ujian: guru yang mengampu mapel+tingkat ujian itu. */
+export interface CalonPenulis {
+  profile_id: string
+  nama: string | null
+  sudah_isi: boolean
+  ditunjuk: boolean
+}
+
+export async function ambilCalonPenulis(ujianId: string): Promise<CalonPenulis[]> {
+  const { data, error } = await supabase.rpc("get_calon_penulis", { p_ujian_id: ujianId })
+  if (error) throw error
+  return (data as CalonPenulis[]) ?? []
+}
+
+/**
+ * Tunjuk (atau lepas) penanggung jawab matriks satu ujian.
+ *
+ * Tanpa penunjukan, get_tugas_menulis menampilkan ujian ke SEMUA guru mapel itu
+ * — di produksi 45 dari 46 kombinasi (mapel, tingkat) punya lebih dari satu
+ * guru — dan tiap grid divalidasi harus sama dengan pagu, sehingga jumlahnya
+ * berlipat sebanyak jumlah guru.
+ */
+export async function tetapkanPenulis(ujianId: string, profileId: string | null, oleh: string | null): Promise<void> {
+  if (!profileId) {
+    const { error } = await supabase.from("psat_ujian_penulis").delete().eq("ujian_id", ujianId)
+    if (error) throw error
+    return
+  }
+  const { error } = await supabase
+    .from("psat_ujian_penulis")
+    .upsert({ ujian_id: ujianId, profile_id: profileId, ditetapkan_oleh: oleh }, { onConflict: "ujian_id" })
+  if (error) throw error
 }
