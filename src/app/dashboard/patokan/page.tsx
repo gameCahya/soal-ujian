@@ -72,6 +72,13 @@ export default function AdminPage() {
   const [copyTargets, setCopyTargets] = useState<Set<string>>(new Set())
   const [copyingBobot, setCopyingBobot] = useState(false)
 
+  /** Ujian yang matriksnya sudah disubmit guru. Menimpa pagunya membatalkan
+   *  invarian Σ per bab = pagu tanpa gurunya tahu, jadi harus dikonfirmasi. */
+  const [matriksTerkunci, setMatriksTerkunci] = useState<Set<string>>(new Set())
+  /** Ujian yang panel "salin pagu ke…"-nya sedang terbuka, dan tujuannya. */
+  const [salinDari, setSalinDari] = useState<string | null>(null)
+  const [salinKe, setSalinKe] = useState<Set<string>>(new Set())
+
   /** Muat calon penulis tiap ujian sekali daftar ujian siap. */
   const muatCalonPenulis = async (daftar: UjianAktif[]) => {
     const hasil: Record<string, CalonPenulis[]> = {}
@@ -133,6 +140,15 @@ export default function AdminPage() {
           g[`${row.tipe}_${row.tingkat_kesulitan}_keluar`] = row.jumlah_keluar ?? 0
           g[`${row.tipe}_${row.tingkat_kesulitan}_bank`] = row.jumlah_bank ?? 0
         })
+
+        // Matriks yang sudah disubmit: menyalin pagu ke sana diam-diam membuat
+        // Σ per bab tidak lagi sama dengan pagu, dan gurunya tidak diberi tahu.
+        const { data: submitRows } = await supabase
+          .from("psat_matrix_input")
+          .select("ujian_id")
+          .in("ujian_id", ujians.map(u => u.ujian_id))
+          .eq("is_submitted", true)
+        setMatriksTerkunci(new Set((submitRows ?? []).map((r: { ujian_id: string }) => r.ujian_id)))
       }
       setPatokanMap(pMap)
 
@@ -162,6 +178,56 @@ export default function AdminPage() {
 
   const handlePatokanChange = (ujianId: string, field: string, value: number) => {
     setPatokanMap(prev => ({ ...prev, [ujianId]: { ...prev[ujianId], [field]: value } }))
+  }
+
+  /**
+   * Ujian lain dengan mata pelajaran yang sama — tingkat lain dari mapel ini.
+   * Dengan 3 level per mapel, mengetik ulang 15 sel untuk tiap tingkat berarti
+   * ratusan angka; hampir selalu tingkat 8 dan 9 memakai pagu yang sama dengan 7.
+   */
+  const tujuanSalin = (sumber: UjianAktif) =>
+    ujianList.filter(u => u.ujian_id !== sumber.ujian_id && u.mapel_id === sumber.mapel_id)
+
+  const bukaSalin = (ujianId: string) => {
+    setSalinDari(prev => (prev === ujianId ? null : ujianId))
+    setSalinKe(new Set())
+  }
+
+  /**
+   * Salin grid ke ujian lain — murni operasi state.
+   *
+   * Halaman ini menahan SEMUA grid di satu `patokanMap` dan menyimpannya sekali
+   * lewat tombol "Simpan", jadi menyalin tidak perlu menyentuh basis data sama
+   * sekali. Hasilnya juga bisa disunting dulu sebelum disimpan, dan dibatalkan
+   * cukup dengan memuat ulang halaman tanpa menekan Simpan.
+   */
+  const terapkanSalin = (sumber: UjianAktif) => {
+    if (salinKe.size === 0) return
+
+    const terkunci = Array.from(salinKe).filter(id => matriksTerkunci.has(id))
+    if (terkunci.length > 0) {
+      const nama = terkunci
+        .map(id => {
+          const u = ujianList.find(x => x.ujian_id === id)
+          return u ? `${u.mapel_nama ?? u.ujian_nama}${u.level ? ` kelas ${u.level}` : ""}` : id
+        })
+        .join(", ")
+      if (!confirm(
+        `Matriks ${nama} sudah disubmit guru. Mengubah pagunya membuat pembagian per bab ` +
+        `tidak lagi sama dengan pagu, dan matriks itu akan ditolak saat dikirim ke LMS ` +
+        `sampai gurunya membagi ulang.\n\nTetap salin?`
+      )) return
+    }
+
+    const grid = patokanMap[sumber.ujian_id] || buildEmpty()
+    setPatokanMap(prev => {
+      const next = { ...prev }
+      salinKe.forEach(id => { next[id] = { ...grid } })
+      return next
+    })
+    setSalinDari(null)
+    setSalinKe(new Set())
+    showToast(`Pagu disalin ke ${salinKe.size} ujian — tekan Simpan untuk menerapkannya`, "success")
   }
 
   const handleSavePatokan = async () => {
@@ -509,6 +575,77 @@ export default function AdminPage() {
                                     </div>
                                   )}
                                 </div>
+
+                                {/* Salin pagu ke tingkat lain mapel yang sama.
+                                    Tiap mapel punya 3 tingkat × 15 sel; tanpa ini
+                                    pengisian awal satu event berarti ratusan angka
+                                    diketik ulang. */}
+                                {tujuanSalin(ujian).length > 0 && (
+                                  <div className="mt-2 font-normal">
+                                    <button
+                                      onClick={() => bukaSalin(ujian.ujian_id)}
+                                      className="text-[11px] px-2 py-1"
+                                      style={{
+                                        border: "1px dashed var(--pp-ink)",
+                                        borderRadius: 10,
+                                        backgroundColor: "transparent",
+                                        color: "var(--pp-ink-2)",
+                                      }}
+                                    >
+                                      ⧉ Salin pagu ke…
+                                    </button>
+
+                                    {salinDari === ujian.ujian_id && (
+                                      <div
+                                        className="mt-1.5 p-2"
+                                        style={{
+                                          border: "1.5px solid var(--pp-ink)",
+                                          borderRadius: 12,
+                                          backgroundColor: "var(--pp-card)",
+                                        }}
+                                      >
+                                        {tujuanSalin(ujian).map(t => (
+                                          <label
+                                            key={t.ujian_id}
+                                            className="flex items-start gap-1.5 text-[11px] mb-1 cursor-pointer"
+                                            style={{ color: "var(--pp-ink)" }}
+                                          >
+                                            <input
+                                              type="checkbox"
+                                              checked={salinKe.has(t.ujian_id)}
+                                              onChange={e => setSalinKe(prev => {
+                                                const next = new Set(prev)
+                                                if (e.target.checked) next.add(t.ujian_id)
+                                                else next.delete(t.ujian_id)
+                                                return next
+                                              })}
+                                              className="mt-0.5"
+                                            />
+                                            <span>
+                                              {t.level ? `Kelas ${t.level}` : t.ujian_nama}
+                                              {matriksTerkunci.has(t.ujian_id) && (
+                                                <span style={{ color: "#b45309" }}> • matriks sudah disubmit</span>
+                                              )}
+                                            </span>
+                                          </label>
+                                        ))}
+                                        <button
+                                          onClick={() => terapkanSalin(ujian)}
+                                          disabled={salinKe.size === 0}
+                                          className="mt-1 text-[11px] px-2 py-1 w-full font-semibold"
+                                          style={{
+                                            border: "1.5px solid var(--pp-ink)",
+                                            borderRadius: 10,
+                                            backgroundColor: salinKe.size > 0 ? "var(--pp-lemon)" : "transparent",
+                                            color: salinKe.size > 0 ? "var(--pp-ink)" : "var(--pp-muted)",
+                                          }}
+                                        >
+                                          Terapkan ({salinKe.size})
+                                        </button>
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
                               </td>
                             )}
                             <td
