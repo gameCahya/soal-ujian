@@ -863,7 +863,11 @@ export default function MatrixPage() {
               </div>
             ))}
 
-            {!babs.every(b => b.is_submitted) && (
+            {/* `[].every()` bernilai true, jadi syarat lama menyembunyikan tombol
+                justru saat babs KOSONG — persis keadaan guru yang baru mulai,
+                dan layar kosong di bawah menyuruh menekan tombol yang tak ada.
+                Kosong = belum ada yang terkunci, jadi harus tampil. */}
+            {(babs.length === 0 || !babs.every(b => b.is_submitted)) && (
               isAdding ? (
                 <div className="flex items-center gap-1.5">
                   {/* Bab HARUS dari daftar LMS: nama bebas tidak bisa dipetakan
@@ -950,7 +954,13 @@ export default function MatrixPage() {
               color: "var(--pp-muted)",
             }}
           >
-            Klik "+ Tambah Bab" untuk menambah bab/chapter.
+            Klik &quot;+ Tambah Bab&quot; untuk menambah bab/chapter.
+            {babSaran.length === 0 && (
+              <div className="text-xs mt-2">
+                Mata pelajaran ini belum punya bab di LMS — ketik nama bab baru
+                di kotak &quot;bab baru…&quot; lalu tekan <b>+ buat</b>.
+              </div>
+            )}
           </div>
         ) : (
           <div
