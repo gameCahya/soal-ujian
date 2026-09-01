@@ -91,12 +91,24 @@ export default function AdminPage() {
   const ubahPenulis = async (ujianId: string, profileId: string) => {
     setMenyimpanPenulis(ujianId)
     try {
-      await tetapkanPenulis(ujianId, profileId || null, user?.id ?? null)
+      const hasil = await tetapkanPenulis(ujianId, profileId || null)
       setCalonPenulis(prev => ({
         ...prev,
-        [ujianId]: (prev[ujianId] || []).map(c => ({ ...c, ditunjuk: c.profile_id === profileId })),
+        [ujianId]: (prev[ujianId] || []).map(c => ({
+          ...c,
+          ditunjuk: c.profile_id === profileId,
+          // Izinnya baru dinyalakan oleh penunjukan barusan.
+          siap: c.profile_id === profileId ? true : c.siap,
+        })),
       }))
-      setToast({ message: profileId ? "Penulis ditetapkan" : "Penunjukan dilepas", type: "success" })
+      setToast({
+        message: !profileId
+          ? "Penunjukan dilepas"
+          : hasil?.izin_baru_dinyalakan
+            ? `Penulis ditetapkan — izin menulis ${hasil.nama ?? ""} sekalian dinyalakan`
+            : "Penulis ditetapkan",
+        type: "success",
+      })
     } catch (e) {
       setToast({ message: "Gagal: " + pesanError(e), type: "error" })
     } finally {
@@ -562,8 +574,14 @@ export default function AdminPage() {
                                   >
                                     <option value="">— belum ditunjuk —</option>
                                     {(calonPenulis[ujian.ujian_id] || []).map(c => (
+                                      // Nama saja tidak cukup memilih: satu ujian punya
+                                      // 7–11 calon dari 10 unit. Sekolah dan jumlah kelas
+                                      // yang diampu memberi dasar untuk memutuskan.
                                       <option key={c.profile_id} value={c.profile_id}>
-                                        {c.nama || c.profile_id.slice(0, 8)}{c.sudah_isi ? " • sudah mengisi" : ""}
+                                        {c.nama || c.profile_id.slice(0, 8)}
+                                        {c.sekolah ? ` — ${c.sekolah}` : ""}
+                                        {c.jml_kelas ? ` (${c.jml_kelas} kelas)` : ""}
+                                        {c.sudah_isi ? " • sudah mengisi" : ""}
                                       </option>
                                     ))}
                                   </select>
