@@ -833,7 +833,14 @@ export default function DashboardPage() {
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   {TIPE_OPTIONS.map((tipe, ti) => {
-                    const tipeColor = GURU_STEP_COLORS[ti]
+                    // Modulo, bukan indeks langsung. GURU_STEP_COLORS punya 4
+                    // entri (empat langkah guru) sementara TIPE_OPTIONS kini 5
+                    // sejak `benar_salah` ditambahkan — indeks ke-5 mengembalikan
+                    // undefined dan `tipeColor.bg` di bawah MEMATIKAN seluruh
+                    // dashboard ("This page couldn't load"). Baru terlihat hari
+                    // ini karena blok ini dijaga `patokan.length > 0`, dan pagu
+                    // baru ada sejak ujian PTS 1 dibuat.
+                    const tipeColor = GURU_STEP_COLORS[ti % GURU_STEP_COLORS.length]
                     return (
                       <div key={tipe} className="rounded-[18px] shadow-hard-md overflow-hidden"
                            style={{ border: "1.5px solid var(--pp-ink)" }}>
