@@ -231,6 +231,12 @@ export interface CalonPenulis {
   nama: string | null
   sudah_isi: boolean
   ditunjuk: boolean
+  /** Unit asal — 33 ujian × 7–11 calon dari 10 sekolah, nama saja tidak cukup. */
+  sekolah: string | null
+  /** Kelas yang diampu untuk mapel+tingkat ujian ini. */
+  jml_kelas: number
+  /** Izin & status sudah siap, jadi ia bisa langsung bekerja begitu ditunjuk. */
+  siap: boolean
 }
 
 export async function ambilCalonPenulis(ujianId: string): Promise<CalonPenulis[]> {
@@ -247,16 +253,36 @@ export async function ambilCalonPenulis(ujianId: string): Promise<CalonPenulis[]
  * guru — dan tiap grid divalidasi harus sama dengan pagu, sehingga jumlahnya
  * berlipat sebanyak jumlah guru.
  */
-export async function tetapkanPenulis(ujianId: string, profileId: string | null, oleh: string | null): Promise<void> {
+export interface HasilTetapkanPenulis {
+  ok: boolean
+  nama: string | null
+  /** true bila izin menulisnya baru dinyalakan oleh penunjukan ini. */
+  izin_baru_dinyalakan: boolean
+}
+
+export async function tetapkanPenulis(
+  ujianId: string,
+  profileId: string | null,
+): Promise<HasilTetapkanPenulis | null> {
   if (!profileId) {
-    const { error } = await supabase.from("psat_ujian_penulis").delete().eq("ujian_id", ujianId)
+    const { error } = await supabase.rpc("hapus_penulis", { p_ujian_id: ujianId })
     if (error) throw error
-    return
+    return null
   }
-  const { error } = await supabase
-    .from("psat_ujian_penulis")
-    .upsert({ ujian_id: ujianId, profile_id: profileId, ditetapkan_oleh: oleh }, { onConflict: "ujian_id" })
+
+  // Lewat RPC, bukan upsert langsung. Menulis baris psat_ujian_penulis saja
+  // menghasilkan penulis yang masuk ke aplikasi setengah lumpuh: tanpa
+  // is_penulis_soal, view psat.profiles tidak mengembalikan barisnya sendiri
+  // (0 baris — diukur di produksi), jadi dashboard PSAT tidak bisa memuat
+  // profilnya. RPC menyalakan izin itu dalam transaksi yang sama, dan menolak
+  // calon yang tidak mengampu atau akunnya tidak aktif — dua keadaan yang dulu
+  // diterima diam-diam.
+  const { data, error } = await supabase.rpc("tetapkan_penulis", {
+    p_ujian_id: ujianId,
+    p_profile_id: profileId,
+  })
   if (error) throw error
+  return data as HasilTetapkanPenulis
 }
 
 /** Hasil pembuatan bab dari halaman Matrix. */
