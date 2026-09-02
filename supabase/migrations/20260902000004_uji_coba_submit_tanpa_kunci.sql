@@ -260,7 +260,7 @@ GRANT EXECUTE ON FUNCTION psat.sinkron_konfigurasi_bab(uuid, uuid, boolean) TO a
 -- Gerbang struktural pernah meloloskan fungsi yang gagal di setiap pemanggilan
 -- (20260902000001/0002). Yang ini menyamar jadi guru yang benar-benar tersangkut
 -- dan menuntut uji-cobanya berbalik jadi lulus.
-DO $
+DO $gate$
 DECLARE
   v_guru  uuid;
   v_ujian uuid;
@@ -290,7 +290,7 @@ BEGIN
     RAISE NOTICE 'gerbang: uji-coba guru tersangkut = %', v_hasil;
   END IF;
 END
-$;
+$gate$;
 
 COMMIT;
 
