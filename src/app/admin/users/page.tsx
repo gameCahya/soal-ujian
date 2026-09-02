@@ -6,6 +6,7 @@ import { supabase } from "@/lib/supabase"
 import Toast from "@/components/Toast"
 import { UserPlus, X, Eye, EyeOff, Trash2, Pencil, Users, ArrowLeft } from "lucide-react"
 import ThemeToggle from "@/components/ThemeToggle"
+import { ambilUnitSekolah, daftarDenganNilaiTersimpan } from "@/lib/sekolah"
 
 const ROLE_OPTIONS = ["guru", "validator", "admin", "admin_keuangan"]
 
@@ -16,18 +17,7 @@ const ROLE_COLORS: Record<string, { bg: string; color: string }> = {
   admin_keuangan:  { bg: "#FFE3D0", color: "#c2410c" },
 }
 
-const UNIT_OPTIONS = [
-  "SMP I Al Abidin Surakarta",
-  "SMP ABBS Surakarta",
-  "SMPII Al Abidin Karanganyar",
-  "SMPII Al Abidin Sukoharjo",
-  "SMPII Al Abidin Klaten",
-  "SMPII Al Abidin Boyolali",
-  "SMPII Al Abidin Yogyakarta",
-  "SMPII Al Abidin Salatiga",
-]
 
-const BANK_OPTIONS = ["CIMB", "MayBank"]
 
 interface UserRow {
   id: string
@@ -63,6 +53,10 @@ const inputStyle: React.CSSProperties = {
 
 export default function UsersAdminPage() {
   const router = useRouter()
+  /** Daftar unit dari LMS — menggantikan larik yang dulu di-hardcode di sini
+   *  DAN di dashboard/profile, dua salinan yang sama-sama tertinggal 3 sekolah. */
+  const [unitOptions, setUnitOptions] = useState<string[]>([])
+  const [memuatUnit, setMemuatUnit] = useState(true)
   const [user, setUser] = useState<any>(null)
   const [userList, setUserList] = useState<UserRow[]>([])
   const [mataPelajaran, setMataPelajaran] = useState<{ id: string; nama: string }[]>([])
@@ -85,6 +79,13 @@ export default function UsersAdminPage() {
   const [editLoading, setEditLoading] = useState(false)
   const [editSaving, setEditSaving] = useState(false)
   const [editValidatorMapels, setEditValidatorMapels] = useState<string[]>([])
+
+  useEffect(() => {
+    ambilUnitSekolah()
+      .then(setUnitOptions)
+      .catch(() => setUnitOptions([]))   // nilai tersimpan tetap terlihat
+      .finally(() => setMemuatUnit(false))
+  }, [])
 
   useEffect(() => {
     async function load() {
@@ -629,8 +630,11 @@ export default function UsersAdminPage() {
                       onChange={e => setEditForm(f => f ? { ...f, unitSekolah: e.target.value } : f)}
                       style={inputStyle}
                     >
-                      <option value="">Pilih Unit Sekolah</option>
-                      {UNIT_OPTIONS.map(u => <option key={u} value={u}>{u}</option>)}
+                      <option value="">
+                        {memuatUnit ? "Memuat daftar unit…" : "Pilih Unit Sekolah"}
+                      </option>
+                      {daftarDenganNilaiTersimpan(unitOptions, editForm.unitSekolah)
+                        .map(u => <option key={u} value={u}>{u}</option>)}
                     </select>
                   </div>
 
@@ -719,14 +723,16 @@ export default function UsersAdminPage() {
                     <div className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--pp-muted)" }}>Data Rekening</div>
                     <div>
                       <label className="block text-xs font-semibold mb-1.5 uppercase tracking-wide" style={{ color: "var(--pp-muted)" }}>Bank</label>
-                      <select
+                      {/* Isian bebas, bukan daftar dua bank. Lihat catatan yang
+                          sama di dashboard/profile — server tidak pernah
+                          memvalidasi nilainya. */}
+                      <input
+                        type="text"
                         value={editForm.bank}
                         onChange={e => setEditForm(f => f ? { ...f, bank: e.target.value } : f)}
+                        placeholder="Nama bank, mis. BSI"
                         style={inputStyle}
-                      >
-                        <option value="">Pilih Bank</option>
-                        {BANK_OPTIONS.map(b => <option key={b} value={b}>{b}</option>)}
-                      </select>
+                      />
                     </div>
                     <div>
                       <label className="block text-xs font-semibold mb-1.5 uppercase tracking-wide" style={{ color: "var(--pp-muted)" }}>Nomor Rekening</label>
