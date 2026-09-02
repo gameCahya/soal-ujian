@@ -12,7 +12,7 @@ import DownloadDropdown from "@/components/DownloadDropdown"
 import { sampleSoalByMatrix } from "@/lib/downloadSoal"
 import { driver } from "driver.js"
 import "driver.js/dist/driver.css"
-import { ambilTugasMenulis, labelUjian, pesanError, type TugasMenulis } from "@/lib/ujian"
+import { ambilTugasMenulis, labelUjian, pesanError, punyaKunciTeks, normalisasiKunci, periksaKunciSatuKata, type TugasMenulis } from "@/lib/ujian"
 
 /** Ujian yang sedang dikerjakan, dibagi dengan halaman matrix. */
 const UJIAN_KEY = "psat_ujian_id"
@@ -136,6 +136,11 @@ export default function SoalPage() {
   const [pilihanGambar, setPilihanGambar] = useState<string[]>(["", "", "", ""])
   const [jawabanBenar, setJawabanBenar] = useState<number>(0)
   const [jawabanBenarCeklist, setJawabanBenarCeklist] = useState<number[]>([])
+  /** Kunci isian singkat — satu kata. Disimpan di jawaban_benar (jsonb). */
+  const [kunciIsian, setKunciIsian] = useState("")
+  /** Pesan galat kunci, hanya setelah ada yang diketik — kotak kosong yang
+   *  belum disentuh tidak pantas berwarna merah. */
+  const kunciSalah = kunciIsian.trim() ? periksaKunciSatuKata(kunciIsian) : null
   const [bobot, setBobot] = useState<number>(1.0)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [bobotConfig, setBobotConfig] = useState<BobotConfig>({})
@@ -333,6 +338,7 @@ export default function SoalPage() {
     setPilihanGambar(["", "", "", ""])
     setJawabanBenar(0)
     setJawabanBenarCeklist([])
+    setKunciIsian("")
     setSelectedTipe("pilgan")
     setSelectedKesulitan("mudah")
     setBobot(getDefaultBobot("pilgan", "mudah"))
@@ -347,6 +353,7 @@ export default function SoalPage() {
     setPilihanGambar(["", "", "", ""])
     setJawabanBenar(0)
     setJawabanBenarCeklist([])
+    setKunciIsian("")
     setEditingId(null)
   }
 
@@ -386,6 +393,14 @@ export default function SoalPage() {
       return
     }
 
+    // Kunci isian singkat wajib dan harus satu kata. Diperiksa DI SINI, bukan
+    // hanya lewat atribut input: form ini juga bisa disimpan lewat Enter dan
+    // lewat jalur edit, dan aturannya harus sama di keduanya.
+    if (punyaKunciTeks(selectedTipe)) {
+      const salah = periksaKunciSatuKata(kunciIsian)
+      if (salah) { setToast({ message: salah, type: "error" }); return }
+    }
+
     const currentCount = getSoalCount(selectedBab, selectedTipe, selectedKesulitan)
     const targetBank = getTargetBank(selectedBab, selectedTipe, selectedKesulitan)
 
@@ -418,7 +433,13 @@ export default function SoalPage() {
         tingkat_kesulitan: selectedKesulitan,
         pilihan: pilihanObj,
         pilihan_gambar: pilihanGambar,
-        jawaban_benar: satuJawaban(selectedTipe) ? jawabanBenar : null,
+        // jawaban_benar jsonb menampung DUA bentuk: indeks pilihan (pilgan,
+        // benar_salah) atau kata kunci (isian_singkat). Yang membedakan tipenya.
+        jawaban_benar: satuJawaban(selectedTipe)
+          ? jawabanBenar
+          : punyaKunciTeks(selectedTipe)
+            ? normalisasiKunci(kunciIsian)
+            : null,
         updated_at: new Date().toISOString(),
       }).eq("id", editingId)
       err = error
@@ -435,7 +456,13 @@ export default function SoalPage() {
         tingkat_kesulitan: selectedKesulitan,
         pilihan: pilihanObj,
         pilihan_gambar: pilihanGambar,
-        jawaban_benar: satuJawaban(selectedTipe) ? jawabanBenar : null,
+        // jawaban_benar jsonb menampung DUA bentuk: indeks pilihan (pilgan,
+        // benar_salah) atau kata kunci (isian_singkat). Yang membedakan tipenya.
+        jawaban_benar: satuJawaban(selectedTipe)
+          ? jawabanBenar
+          : punyaKunciTeks(selectedTipe)
+            ? normalisasiKunci(kunciIsian)
+            : null,
         gambar_url: gambarUrl || null,
       })
       err = error
@@ -495,6 +522,10 @@ export default function SoalPage() {
     setBobot(soalData.bobot)
     setEditingId(soalData.id)
     setGambarUrl(soalData.gambar_url || "")
+
+    if (punyaKunciTeks(soalData.tipe) && typeof soalData.jawaban_benar === "string") {
+      setKunciIsian(soalData.jawaban_benar)
+    }
 
     if (soalData.pilihan) {
       setPilihan(soalData.pilihan.map((p: any) => p.teks || ""))
@@ -565,6 +596,13 @@ export default function SoalPage() {
     if (!validBabs.includes(item.bab_id_text)) errs.push(`#${idx + 1}: bab_id_text tidak ditemukan — "${item.bab_id_text}"`)
     if (punyaPilihan(item.tipe) && (!Array.isArray(item.pilihan) || item.pilihan.length < 2))
       errs.push(`#${idx + 1}: pilihan wajib ada minimal 2 item untuk tipe ${item.tipe}`)
+    // Impor massal adalah pintu KEDUA ke tabel yang sama. Tanpa pemeriksaan di
+    // sini, aturan satu-kata bisa dilewati begitu saja lewat JSON — dan fungsi
+    // yang dipanggil sengaja sama persis dengan yang dipakai form.
+    if (punyaKunciTeks(item.tipe)) {
+      const salah = periksaKunciSatuKata(String(item.jawaban_benar ?? ""))
+      if (salah) errs.push(`#${idx + 1}: ${salah.toLowerCase()}`)
+    }
     return errs
   }
 
@@ -624,7 +662,11 @@ export default function SoalPage() {
         guru_id: user.id,
         bobot: bobotVal,
         pilihan: pilihanObj,
-        jawaban_benar: satuJawaban(item.tipe) ? (pilihanObj?.findIndex((p: any) => p.benar) ?? null) : null,
+        jawaban_benar: satuJawaban(item.tipe)
+          ? (pilihanObj?.findIndex((p: any) => p.benar) ?? null)
+          : punyaKunciTeks(item.tipe)
+            ? normalisasiKunci(String(item.jawaban_benar ?? ""))
+            : null,
         status: "draft",
       }
     })
@@ -677,11 +719,12 @@ export default function SoalPage() {
         pilihan: [],
       },
       {
-        pertanyaan: "Contoh soal isian singkat",
+        pertanyaan: "Contoh soal isian singkat — jawaban_benar wajib SATU KATA",
         tipe: "isian_singkat",
         tingkat_kesulitan: "mudah",
         bab_id_text: babContoh,
         pilihan: [],
+        jawaban_benar: "fotosintesis",
       },
     ]
     const blob = new Blob([JSON.stringify(template, null, 2)], { type: "application/json" })
@@ -1364,6 +1407,33 @@ export default function SoalPage() {
                           </div>
                         )
                       })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Kunci isian singkat. Sebelumnya tipe ini sama sekali tidak
+                    punya kunci — soal tersimpan tanpa jawaban benar, dan guru
+                    penilai di LMS tidak punya acuan apa pun. */}
+                {punyaKunciTeks(selectedTipe) && (
+                  <div>
+                    <div className="text-xs font-bold uppercase mb-2" style={{ color: "var(--pp-muted)", letterSpacing: "0.1em" }}>
+                      Kunci Jawaban <span style={{ color: "#dc2626" }}>*</span>
+                    </div>
+                    <input
+                      type="text"
+                      value={kunciIsian}
+                      onChange={e => setKunciIsian(e.target.value)}
+                      placeholder="Satu kata, mis. fotosintesis"
+                      className="w-full px-3 py-2.5 text-sm outline-none"
+                      style={{
+                        border: `1.5px solid ${kunciSalah ? "#dc2626" : "var(--pp-ink)"}`,
+                        borderRadius: 12,
+                        backgroundColor: "var(--pp-card)",
+                        color: "var(--pp-ink)",
+                      }}
+                    />
+                    <div className="text-[11px] mt-1.5" style={{ color: kunciSalah ? "#dc2626" : "var(--pp-muted)" }}>
+                      {kunciSalah ?? "Harus satu kata. Tanda hubung dan apostrof dihitung menyatu — \"anak-anak\" tetap satu kata."}
                     </div>
                   </div>
                 )}
