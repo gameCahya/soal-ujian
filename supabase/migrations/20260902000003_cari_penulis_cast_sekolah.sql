@@ -126,13 +126,19 @@ GRANT EXECUTE ON FUNCTION psat.cari_calon_penulis(uuid, text, int) TO authentica
 -- =============================================================================
 -- Penyamaran peran wajib — fungsinya menolak siapa pun yang current_user_role()
 -- nya bukan 'admin', dan sebagai pemilik migrasi auth.uid() bernilai NULL.
-SET LOCAL ROLE authenticated;
+--
+-- ⚠️ URUTANNYA MENENTUKAN. Klaim JWT harus dipasang SEBELUM berpindah peran:
+-- sesudah SET LOCAL ROLE authenticated, membaca public.profiles tunduk pada RLS
+-- dan — karena klaimnya belum ada — subquery pencari id admin mengembalikan
+-- NULL. Hasilnya `{"sub": null}`, auth.uid() NULL, dan gerbangnya menolak
+-- dirinya sendiri dengan 'bukan-admin'. Sudah terjadi sekali di migrasi ini.
 SELECT set_config(
   'request.jwt.claims',
   json_build_object('sub',
     (SELECT id FROM public.profiles
       WHERE role = 'admin' AND status = 'aktif' ORDER BY id LIMIT 1))::text,
   true);
+SET LOCAL ROLE authenticated;
 
 DO $asap$
 DECLARE
@@ -141,6 +147,13 @@ DECLARE
   n_mati  int;
   n_batas int;
 BEGIN
+  -- Dibaca lebih dulu: 'bukan-admin' di bawah bisa berarti penyamarannya gagal,
+  -- bukan fungsinya rusak. Bedakan sekarang supaya galatnya tidak menyesatkan.
+  IF COALESCE(psat.current_user_role()::text, '') <> 'admin' THEN
+    RAISE EXCEPTION 'penyamaran peran gagal (current_user_role = %) — gerbang tidak mengukur fungsinya',
+      COALESCE(psat.current_user_role()::text, 'NULL');
+  END IF;
+
   SELECT ujian_id INTO v_ujian FROM psat.get_ujian_aktif() LIMIT 1;
   IF v_ujian IS NULL THEN
     RAISE EXCEPTION 'tidak ada ujian aktif — gerbang tidak bisa mengukur apa pun';
