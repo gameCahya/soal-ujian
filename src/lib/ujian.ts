@@ -245,6 +245,14 @@ export interface CalonPenulis {
    * berarti "datanya belum diisi", bukan "orangnya salah".
    */
   mengampu: boolean
+  /**
+   * 'aktif' | 'nonaktif' | 'pindah' — apa adanya dari public.profiles.
+   *
+   * Guru tidak aktif SENGAJA ikut dikembalikan: tetapkan_penulis menolak
+   * mereka, tapi penolakannya menjelaskan diri ("aktifkan dulu"), sedangkan
+   * absennya nama dari daftar tidak menjelaskan apa pun.
+   */
+  status: string
 }
 
 export async function ambilCalonPenulis(ujianId: string): Promise<CalonPenulis[]> {
@@ -265,7 +273,9 @@ export async function ambilCalonPenulis(ujianId: string): Promise<CalonPenulis[]
 export async function cariCalonPenulis(
   ujianId: string,
   q: string,
-  limit = 30,
+  // 200 = seluruh populasi guru. Batas 30 yang lama memotong hampir tiap
+  // ketikan dua huruf ("ma" cocok 72, terkirim 30) tanpa tanda apa pun.
+  limit = 200,
 ): Promise<CalonPenulis[]> {
   const { data, error } = await supabase.rpc("cari_calon_penulis", {
     p_ujian_id: ujianId,
