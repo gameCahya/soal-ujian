@@ -267,10 +267,13 @@ BEGIN
       USING HINT = 'bukan-guru';
   END IF;
 
-  -- Dulu ini penjaga yang MENOLAK (`bukan-calon`). Sekarang cuma keterangan:
+  -- Dulu ini penjaga yang MENOLAK guru non-pengampu. Sekarang cuma keterangan:
   -- get_tugas_menulis() menghormati penunjukan eksplisit, jadi guru yang tidak
   -- mengampu pun benar-benar menerima tugasnya. Nilainya dikembalikan supaya
   -- layar bisa mengatakan apa adanya, bukan menyembunyikannya.
+  --
+  -- Kode HINT lamanya sengaja tidak ditulis di sini: pg_get_functiondef ikut
+  -- mengembalikan komentar, dan gerbang assersi di bawah mencari kode itu.
   SELECT EXISTS (
     SELECT 1
     FROM psat.get_ujian_aktif() a
@@ -414,8 +417,11 @@ BEGIN
     RAISE EXCEPTION 'get_calon_penulis harus punya kolom mengampu (dapat % entri argumen)', n;
   END IF;
 
+  -- Yang dicari konstruksi RAISE-nya, bukan sekadar kodenya: pg_get_functiondef
+  -- mengembalikan komentar juga, jadi pola yang terlalu longgar akan tersandung
+  -- kalimat yang cuma MENCERITAKAN penjaga itu. Sudah terjadi sekali.
   IF pg_get_functiondef(to_regprocedure('psat.tetapkan_penulis(uuid,uuid)'))
-       LIKE '%bukan-calon%' THEN
+       LIKE '%HINT = ''bukan-calon''%' THEN
     RAISE EXCEPTION 'tetapkan_penulis masih menolak guru non-pengampu';
   END IF;
 
