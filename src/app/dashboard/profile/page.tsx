@@ -13,6 +13,7 @@ import {
   User, Phone, Building2,
   BookMarked, CreditCard, Hash, Check, ArrowRight,
 } from "lucide-react"
+import { ambilUnitSekolah, daftarDenganNilaiTersimpan } from "@/lib/sekolah"
 
 interface PsatGuruData {
   id: string
@@ -24,18 +25,7 @@ interface PsatGuruData {
   mapel_id: string | null
 }
 
-const UNIT_OPTIONS = [
-  "SMP I Al Abidin Surakarta",
-  "SMP ABBS Surakarta",
-  "SMPII Al Abidin Karanganyar",
-  "SMPII Al Abidin Sukoharjo",
-  "SMPII Al Abidin Klaten",
-  "SMPII Al Abidin Boyolali",
-  "SMPII Al Abidin Yogyakarta",
-  "SMPII Al Abidin Salatiga",
-]
 
-const BANK_OPTIONS = ["CIMB", "MayBank"]
 
 /* shared input style */
 const inputBase = (hasError: boolean): React.CSSProperties => ({
@@ -66,6 +56,10 @@ export default function ProfilePage() {
   const [noRekening, setNoRekening]   = useState("")
   const [bank, setBank]               = useState("")
   const [unitSekolah, setUnitSekolah] = useState("")
+  /** Daftar unit dari LMS. Kosong sampai termuat — nilai tersimpan tetap
+   *  ditampilkan lewat daftarDenganNilaiTersimpan supaya tidak terlihat hilang. */
+  const [unitOptions, setUnitOptions] = useState<string[]>([])
+  const [memuatUnit, setMemuatUnit] = useState(true)
   const [tugasList, setTugasList]     = useState<TugasMenulis[]>([])
 
   const isValidator = role === "validator"
@@ -95,6 +89,13 @@ export default function ProfilePage() {
   }, [isValidator])
 
   /* ── Load data ── */
+  useEffect(() => {
+    ambilUnitSekolah()
+      .then(setUnitOptions)
+      .catch(() => setUnitOptions([]))   // nilai tersimpan tetap terlihat
+      .finally(() => setMemuatUnit(false))
+  }, [])
+
   useEffect(() => {
     async function load() {
       const { data: { user: u } } = await supabase.auth.getUser()
@@ -355,8 +356,11 @@ export default function ProfilePage() {
                   onChange={e => { setUnitSekolah(e.target.value); setErrors(p => ({ ...p, unitSekolah: false })) }}
                   style={inputBase(errors.unitSekolah)}
                 >
-                  <option value="">Pilih Unit Sekolah</option>
-                  {UNIT_OPTIONS.map(u => <option key={u} value={u}>{u}</option>)}
+                  <option value="">
+                    {memuatUnit ? "Memuat daftar unit…" : "Pilih Unit Sekolah"}
+                  </option>
+                  {daftarDenganNilaiTersimpan(unitOptions, unitSekolah)
+                    .map(u => <option key={u} value={u}>{u}</option>)}
                 </select>
               </Field>
 
@@ -400,14 +404,20 @@ export default function ProfilePage() {
             <div id="tour-bank">
               <Section label="Data Rekening" icon={<CreditCard className="w-3.5 h-3.5" />} last>
                 <Field label="Bank" required error={errors.bank} icon={<CreditCard className="w-4 h-4" />}>
-                  <select
+                  {/* Dulu <select> berisi dua bank saja (CIMB, MayBank). Guru yang
+                      rekeningnya di bank lain tidak punya pilihan yang benar dan
+                      terpaksa memilih yang salah — kolom ini wajib diisi. Server
+                      hanya meneruskan nilainya, tak pernah memvalidasi daftar,
+                      jadi membebaskannya tidak melonggarkan apa pun. */}
+                  <input
+                    type="text"
                     value={bank}
                     onChange={e => { setBank(e.target.value); setErrors(p => ({ ...p, bank: false })) }}
+                    placeholder="Nama bank, mis. BSI"
                     style={inputBase(errors.bank)}
-                  >
-                    <option value="">Pilih Bank</option>
-                    {BANK_OPTIONS.map(b => <option key={b} value={b}>{b}</option>)}
-                  </select>
+                    onFocus={e => { e.currentTarget.style.borderColor = "var(--pp-primary)"; e.currentTarget.style.boxShadow = "3px 3px 0 0 var(--pp-primary)" }}
+                    onBlur={e => { e.currentTarget.style.borderColor = errors.bank ? "#FFA6C5" : "var(--pp-ink)"; e.currentTarget.style.boxShadow = "none" }}
+                  />
                 </Field>
 
                 <Field label="Nomor Rekening" required error={errors.noRekening}
