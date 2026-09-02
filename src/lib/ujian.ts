@@ -237,10 +237,41 @@ export interface CalonPenulis {
   jml_kelas: number
   /** Izin & status sudah siap, jadi ia bisa langsung bekerja begitu ditunjuk. */
   siap: boolean
+  /**
+   * Ia memang mengajar mapel + tingkat ujian ini menurut public.guru_mengajar.
+   *
+   * Sejak penunjukan boleh jatuh ke guru mana pun, ini bukan lagi syarat —
+   * hanya keterangan. Data ampu di produksi belum lengkap, jadi `false` sering
+   * berarti "datanya belum diisi", bukan "orangnya salah".
+   */
+  mengampu: boolean
 }
 
 export async function ambilCalonPenulis(ujianId: string): Promise<CalonPenulis[]> {
   const { data, error } = await supabase.rpc("get_calon_penulis", { p_ujian_id: ujianId })
+  if (error) throw error
+  return (data as CalonPenulis[]) ?? []
+}
+
+/**
+ * Cari guru aktif mana pun untuk ditunjuk jadi penulis matriks.
+ *
+ * Terpisah dari ambilCalonPenulis karena menjawab pertanyaan lain: yang itu
+ * memuat isi awal dropdown untuk SETIAP ujian saat halaman dibuka (33+ panggilan
+ * sekaligus), yang ini hanya menyala saat admin mengetik. Pemanggilnya wajib
+ * menahan ketikan (lihat debounce di halaman Patokan) — tanpa itu satu nama
+ * yang diketik berarti satu permintaan per huruf.
+ */
+export async function cariCalonPenulis(
+  ujianId: string,
+  q: string,
+  limit = 30,
+): Promise<CalonPenulis[]> {
+  const { data, error } = await supabase.rpc("cari_calon_penulis", {
+    p_ujian_id: ujianId,
+    p_q: q,
+    p_limit: limit,
+  })
   if (error) throw error
   return (data as CalonPenulis[]) ?? []
 }
@@ -258,6 +289,9 @@ export interface HasilTetapkanPenulis {
   nama: string | null
   /** true bila izin menulisnya baru dinyalakan oleh penunjukan ini. */
   izin_baru_dinyalakan: boolean
+  /** false = ia tidak tercatat mengampu mapel+tingkat ini. Bukan galat: sejak
+   *  20260902000001 penunjukan eksplisit yang memberi tugas, bukan guru_mengajar. */
+  mengampu: boolean
 }
 
 export async function tetapkanPenulis(
@@ -275,8 +309,8 @@ export async function tetapkanPenulis(
   // is_penulis_soal, view psat.profiles tidak mengembalikan barisnya sendiri
   // (0 baris — diukur di produksi), jadi dashboard PSAT tidak bisa memuat
   // profilnya. RPC menyalakan izin itu dalam transaksi yang sama, dan menolak
-  // calon yang tidak mengampu atau akunnya tidak aktif — dua keadaan yang dulu
-  // diterima diam-diam.
+  // akun yang tidak aktif atau bukan guru — dua keadaan yang membuat penunjukan
+  // mati tanpa galat. Tidak mengampu BUKAN lagi penolakan, hanya keterangan.
   const { data, error } = await supabase.rpc("tetapkan_penulis", {
     p_ujian_id: ujianId,
     p_profile_id: profileId,
