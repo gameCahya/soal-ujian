@@ -34,6 +34,38 @@ export const TIPE_COLORS: Record<string, { bg: string; accent: string }> = {
   benar_salah:   { bg: "#D8ECFF", accent: "#1d4ed8" },
 }
 
+/** Tipe yang kuncinya berupa SATU KATA yang diketik, bukan pilihan. */
+export const punyaKunciTeks = (t: string) => t === "isian_singkat"
+
+/**
+ * Normalisasi kunci isian singkat: rapikan spasi, buang tanda baca penutup.
+ *
+ * Penilaian di LMS dilakukan guru (bukan pencocokan otomatis), jadi ini bukan
+ * soal presisi mesin — tujuannya supaya kunci yang tersimpan bersih dan bisa
+ * dibandingkan mata dengan jawaban siswa tanpa terganggu spasi ganda atau
+ * titik yang tak sengaja ikut terketik.
+ */
+export function normalisasiKunci(nilai: string): string {
+  return nilai.replace(/\s+/g, " ").trim().replace(/[.,;:!?]+$/u, "")
+}
+
+/**
+ * Kunci isian singkat wajib SATU KATA.
+ *
+ * Aturannya ditulis SEKALI di sini karena ada dua pintu masuk — form satuan dan
+ * impor massal JSON — dan di project ini aturan yang disalin dua kali sudah
+ * berkali-kali menyimpang (warna tipe, kosakata tipe, aturan bab).
+ *
+ * Tanda hubung dan apostrof dihitung sebagai bagian kata: "anak-anak" dan
+ * "d'Alembert" satu kata, "ibu kota" dua.
+ */
+export function periksaKunciSatuKata(nilai: string): string | null {
+  const v = normalisasiKunci(nilai)
+  if (!v) return "Kunci jawaban wajib diisi"
+  if (/\s/.test(v)) return `Kunci jawaban harus satu kata — "${v}" ada ${v.split(/\s+/).length} kata`
+  return null
+}
+
 /** Dipakai saat kode tipe tak dikenal — jangan biarkan `.bg` jatuh ke undefined. */
 export const WARNA_TIPE_CADANGAN = { bg: "#EEEEEE", accent: "#444444" }
 
