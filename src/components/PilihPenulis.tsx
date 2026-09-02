@@ -8,6 +8,8 @@ import { cariCalonPenulis, pesanError, type CalonPenulis } from "@/lib/ujian"
 const DEBOUNCE_MS = 200
 /** Di bawah ini tidak dicari: satu huruf atas ~200 guru bukan jawaban apa pun. */
 const MIN_HURUF = 2
+/** Sama dengan batas RPC. Populasi guru 200, jadi praktis tidak pernah kena. */
+const BATAS_CARI = 200
 
 interface Props {
   ujianId: string
@@ -78,7 +80,7 @@ export default function PilihPenulis({ ujianId, calonAwal, disabled, onPilih }: 
     setMencari(true)
     timerRef.current = setTimeout(async () => {
       try {
-        const r = await cariCalonPenulis(ujianId, kueri)
+        const r = await cariCalonPenulis(ujianId, kueri, BATAS_CARI)
         if (seqRef.current !== seq) return
         setHasil(r)
         setGalat(null)
@@ -213,7 +215,10 @@ export default function PilihPenulis({ ujianId, calonAwal, disabled, onPilih }: 
                 type="button"
                 onClick={() => void pilih(c)}
                 className="w-full text-left px-2 py-1.5 hover:opacity-70 flex items-start gap-1.5"
-                style={{ borderBottom: "1px solid var(--pp-line)" }}
+                style={{
+                  borderBottom: "1px solid var(--pp-line)",
+                  opacity: c.status === "aktif" ? 1 : 0.6,
+                }}
               >
                 <span className="w-3 shrink-0 pt-0.5">
                   {c.ditunjuk && <Check size={12} style={{ color: "var(--pp-primary)" }} />}
@@ -230,6 +235,14 @@ export default function PilihPenulis({ ujianId, calonAwal, disabled, onPilih }: 
                     {c.mengampu ? ` • ${c.jml_kelas} kelas` : " • bukan pengampu"}
                     {c.sudah_isi ? " • sudah mengisi" : ""}
                   </span>
+                  {/* Dulu akun begini disaring diam-diam, jadi "kok namanya tidak
+                      ada" tak punya jawaban di layar. Sekarang muncul dengan
+                      sebabnya — tetapkan_penulis tetap menolaknya. */}
+                  {c.status !== "aktif" && (
+                    <span className="text-[10px] block" style={{ color: "#b45309" }}>
+                      akun {c.status} — aktifkan dulu di LMS sebelum bisa ditunjuk
+                    </span>
+                  )}
                 </span>
               </button>
             ))}
@@ -237,6 +250,16 @@ export default function PilihPenulis({ ujianId, calonAwal, disabled, onPilih }: 
             {!sedangMencari && q.length > 0 && (
               <div className="text-[10px] px-2 py-1.5" style={{ color: "var(--pp-muted)" }}>
                 Ketik minimal {MIN_HURUF} huruf untuk mencari seluruh guru.
+              </div>
+            )}
+
+            {/* Hasil yang menyentuh batas berarti ada nama yang tidak tampil.
+                Batas lama (30) memotong diam-diam, dan itulah yang membuat
+                pencarian terasa "belum semua guru". */}
+            {sedangMencari && !galat && daftar.length > 0 && (
+              <div className="text-[10px] px-2 py-1.5" style={{ color: "var(--pp-muted)" }}>
+                {daftar.length} guru cocok
+                {daftar.length >= BATAS_CARI && " — masih ada yang terpotong, ketik lebih spesifik"}
               </div>
             )}
           </div>
