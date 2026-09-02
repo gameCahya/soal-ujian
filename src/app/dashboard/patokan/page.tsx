@@ -6,6 +6,7 @@ import { supabase } from "@/lib/supabase"
 import { Copy, ArrowLeft, Save, RotateCcw, Inbox } from "lucide-react"
 import ThemeToggle from "@/components/ThemeToggle"
 import Toast from "@/components/Toast"
+import PilihPenulis from "@/components/PilihPenulis"
 import {
   TIPE_OPTIONS,
   KESULITAN_OPTIONS,
@@ -88,19 +89,27 @@ export default function AdminPage() {
     setCalonPenulis(hasil)
   }
 
-  const ubahPenulis = async (ujianId: string, profileId: string) => {
+  const ubahPenulis = async (ujianId: string, calon: CalonPenulis | null) => {
+    const profileId = calon?.profile_id ?? null
     setMenyimpanPenulis(ujianId)
     try {
-      const hasil = await tetapkanPenulis(ujianId, profileId || null)
-      setCalonPenulis(prev => ({
-        ...prev,
-        [ujianId]: (prev[ujianId] || []).map(c => ({
+      const hasil = await tetapkanPenulis(ujianId, profileId)
+      setCalonPenulis(prev => {
+        const lama = prev[ujianId] || []
+        const daftar = lama.map(c => ({
           ...c,
           ditunjuk: c.profile_id === profileId,
           // Izinnya baru dinyalakan oleh penunjukan barusan.
           siap: c.profile_id === profileId ? true : c.siap,
-        })),
-      }))
+        }))
+        // Orang yang ditemukan lewat pencarian belum tentu ada di daftar awal
+        // (daftar itu cuma memuat pengampu). Tanpa disisipkan, tombolnya kembali
+        // berbunyi "belum ditunjuk" padahal penunjukannya berhasil.
+        if (calon && !daftar.some(c => c.profile_id === calon.profile_id)) {
+          daftar.push({ ...calon, ditunjuk: true, siap: true })
+        }
+        return { ...prev, [ujianId]: daftar }
+      })
       setToast({
         message: !profileId
           ? "Penunjukan dilepas"
@@ -560,31 +569,16 @@ export default function AdminPage() {
                                   <label className="block text-[11px] mb-0.5" style={{ color: "var(--pp-muted)" }}>
                                     Penulis matriks
                                   </label>
-                                  <select
-                                    value={(calonPenulis[ujian.ujian_id] || []).find(c => c.ditunjuk)?.profile_id ?? ""}
+                                  {/* Daftarnya seluruh guru aktif, bukan hanya pengampu:
+                                      guru_mengajar di produksi belum lengkap, jadi orang
+                                      yang benar-benar ditugasi sering tidak ada di irisan
+                                      itu — dan tak ada layar lain untuk menunjuknya. */}
+                                  <PilihPenulis
+                                    ujianId={ujian.ujian_id}
+                                    calonAwal={calonPenulis[ujian.ujian_id] || []}
                                     disabled={menyimpanPenulis === ujian.ujian_id}
-                                    onChange={e => ubahPenulis(ujian.ujian_id, e.target.value)}
-                                    className="text-xs px-2 py-1 w-full max-w-[200px]"
-                                    style={{
-                                      border: "1px solid var(--pp-ink)",
-                                      borderRadius: 10,
-                                      backgroundColor: "var(--pp-card)",
-                                      color: "var(--pp-ink)",
-                                    }}
-                                  >
-                                    <option value="">— belum ditunjuk —</option>
-                                    {(calonPenulis[ujian.ujian_id] || []).map(c => (
-                                      // Nama saja tidak cukup memilih: satu ujian punya
-                                      // 7–11 calon dari 10 unit. Sekolah dan jumlah kelas
-                                      // yang diampu memberi dasar untuk memutuskan.
-                                      <option key={c.profile_id} value={c.profile_id}>
-                                        {c.nama || c.profile_id.slice(0, 8)}
-                                        {c.sekolah ? ` — ${c.sekolah}` : ""}
-                                        {c.jml_kelas ? ` (${c.jml_kelas} kelas)` : ""}
-                                        {c.sudah_isi ? " • sudah mengisi" : ""}
-                                      </option>
-                                    ))}
-                                  </select>
+                                    onPilih={c => ubahPenulis(ujian.ujian_id, c)}
+                                  />
                                   {(calonPenulis[ujian.ujian_id]?.filter(c => c.sudah_isi).length ?? 0) > 1 &&
                                    !(calonPenulis[ujian.ujian_id] || []).some(c => c.ditunjuk) && (
                                     <div className="text-[11px] mt-1" style={{ color: "#b45309" }}>
