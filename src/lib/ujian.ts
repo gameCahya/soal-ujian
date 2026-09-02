@@ -50,7 +50,28 @@ export function normalisasiKunci(nilai: string): string {
 }
 
 /**
- * Kunci isian singkat wajib SATU KATA.
+ * Pecah kunci menjadi daftar alternatif.
+ *
+ * Pemisahnya HANYA koma. Garis miring sengaja tidak dipakai walau lazim ditulis
+ * guru ("HP / handphone"): ia bisa jadi bagian sah dari jawaban (tanggal, rumus,
+ * satuan seperti "km/jam"), dan menebak salah di sini berarti memotong kunci
+ * jadi dua tanpa gurunya sadar. Kotaknya satu baris, jadi baris baru tidak
+ * mungkin diketik.
+ */
+export function pisahKunci(nilai: string): string[] {
+  return nilai
+    .split(",")
+    .map(normalisasiKunci)
+    .filter(Boolean)
+}
+
+/**
+ * Kunci isian singkat: minimal satu alternatif, TIAP alternatif satu kata.
+ *
+ * Alternatif ada karena satu pertanyaan sering punya lebih dari satu jawaban
+ * yang sama benarnya — "HP" dan "handphone", "fotosintesis" dan
+ * "photosynthesis". Penilaiannya tetap dilakukan guru; daftar ini acuannya,
+ * supaya jawaban yang benar tidak disalahkan hanya karena beda kata.
  *
  * Aturannya ditulis SEKALI di sini karena ada dua pintu masuk — form satuan dan
  * impor massal JSON — dan di project ini aturan yang disalin dua kali sudah
@@ -59,11 +80,28 @@ export function normalisasiKunci(nilai: string): string {
  * Tanda hubung dan apostrof dihitung sebagai bagian kata: "anak-anak" dan
  * "d'Alembert" satu kata, "ibu kota" dua.
  */
-export function periksaKunciSatuKata(nilai: string): string | null {
-  const v = normalisasiKunci(nilai)
-  if (!v) return "Kunci jawaban wajib diisi"
-  if (/\s/.test(v)) return `Kunci jawaban harus satu kata — "${v}" ada ${v.split(/\s+/).length} kata`
+export function periksaKunciAlternatif(daftar: string[]): string | null {
+  if (daftar.length === 0) return "Kunci jawaban wajib diisi"
+
+  const banyakKata = daftar.find(k => /\s/.test(k))
+  if (banyakKata) {
+    return `Tiap alternatif harus satu kata — "${banyakKata}" ada ${banyakKata.split(/\s+/).length} kata. Pisahkan alternatif dengan koma.`
+  }
+
+  // Kembar bukan galat fatal, tapi membiarkannya berarti daftar kunci yang
+  // menyesatkan penilai ("kenapa ditulis dua kali, apa bedanya?").
+  const terlihat = new Set<string>()
+  for (const k of daftar) {
+    const kunci = k.toLowerCase()
+    if (terlihat.has(kunci)) return `Alternatif "${k}" ditulis dua kali`
+    terlihat.add(kunci)
+  }
   return null
+}
+
+/** Bentuk yang disimpan: selalu larik, walau cuma satu alternatif. */
+export function periksaKunciTeks(nilai: string): string | null {
+  return periksaKunciAlternatif(pisahKunci(nilai))
 }
 
 /** Dipakai saat kode tipe tak dikenal — jangan biarkan `.bg` jatuh ke undefined. */

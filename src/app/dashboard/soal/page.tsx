@@ -12,7 +12,7 @@ import DownloadDropdown from "@/components/DownloadDropdown"
 import { sampleSoalByMatrix } from "@/lib/downloadSoal"
 import { driver } from "driver.js"
 import "driver.js/dist/driver.css"
-import { ambilTugasMenulis, labelUjian, pesanError, punyaKunciTeks, normalisasiKunci, periksaKunciSatuKata, type TugasMenulis } from "@/lib/ujian"
+import { ambilTugasMenulis, labelUjian, pesanError, punyaKunciTeks, pisahKunci, periksaKunciTeks, periksaKunciAlternatif, type TugasMenulis } from "@/lib/ujian"
 
 /** Ujian yang sedang dikerjakan, dibagi dengan halaman matrix. */
 const UJIAN_KEY = "psat_ujian_id"
@@ -140,7 +140,8 @@ export default function SoalPage() {
   const [kunciIsian, setKunciIsian] = useState("")
   /** Pesan galat kunci, hanya setelah ada yang diketik — kotak kosong yang
    *  belum disentuh tidak pantas berwarna merah. */
-  const kunciSalah = kunciIsian.trim() ? periksaKunciSatuKata(kunciIsian) : null
+  const kunciDaftar = pisahKunci(kunciIsian)
+  const kunciSalah = kunciIsian.trim() ? periksaKunciAlternatif(kunciDaftar) : null
   const [bobot, setBobot] = useState<number>(1.0)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [bobotConfig, setBobotConfig] = useState<BobotConfig>({})
@@ -397,7 +398,7 @@ export default function SoalPage() {
     // hanya lewat atribut input: form ini juga bisa disimpan lewat Enter dan
     // lewat jalur edit, dan aturannya harus sama di keduanya.
     if (punyaKunciTeks(selectedTipe)) {
-      const salah = periksaKunciSatuKata(kunciIsian)
+      const salah = periksaKunciTeks(kunciIsian)
       if (salah) { setToast({ message: salah, type: "error" }); return }
     }
 
@@ -438,7 +439,7 @@ export default function SoalPage() {
         jawaban_benar: satuJawaban(selectedTipe)
           ? jawabanBenar
           : punyaKunciTeks(selectedTipe)
-            ? normalisasiKunci(kunciIsian)
+            ? kunciDaftar
             : null,
         updated_at: new Date().toISOString(),
       }).eq("id", editingId)
@@ -461,7 +462,7 @@ export default function SoalPage() {
         jawaban_benar: satuJawaban(selectedTipe)
           ? jawabanBenar
           : punyaKunciTeks(selectedTipe)
-            ? normalisasiKunci(kunciIsian)
+            ? kunciDaftar
             : null,
         gambar_url: gambarUrl || null,
       })
@@ -523,8 +524,12 @@ export default function SoalPage() {
     setEditingId(soalData.id)
     setGambarUrl(soalData.gambar_url || "")
 
-    if (punyaKunciTeks(soalData.tipe) && typeof soalData.jawaban_benar === "string") {
-      setKunciIsian(soalData.jawaban_benar)
+    if (punyaKunciTeks(soalData.tipe)) {
+      // Larik adalah bentuk simpanannya; string diterima juga supaya baris yang
+      // sempat tersimpan sebelum alternatif ada tetap bisa disunting.
+      const jb = soalData.jawaban_benar
+      if (Array.isArray(jb)) setKunciIsian(jb.join(", "))
+      else if (typeof jb === "string") setKunciIsian(jb)
     }
 
     if (soalData.pilihan) {
@@ -587,6 +592,12 @@ export default function SoalPage() {
     }
   }
 
+  /** Kunci dari JSON impor: terima string ber-koma maupun larik. */
+  const kunciDariJson = (nilai: unknown): string[] =>
+    Array.isArray(nilai)
+      ? pisahKunci(nilai.map(v => String(v)).join(","))
+      : pisahKunci(String(nilai ?? ""))
+
   const validateBatchItem = (item: any, idx: number): string[] => {
     const errs: string[] = []
     if (!item.pertanyaan?.trim()) errs.push(`#${idx + 1}: pertanyaan wajib diisi`)
@@ -600,7 +611,9 @@ export default function SoalPage() {
     // sini, aturan satu-kata bisa dilewati begitu saja lewat JSON — dan fungsi
     // yang dipanggil sengaja sama persis dengan yang dipakai form.
     if (punyaKunciTeks(item.tipe)) {
-      const salah = periksaKunciSatuKata(String(item.jawaban_benar ?? ""))
+      // JSON boleh menulis kunci sebagai string ("kata") atau larik
+      // (["kata","alternatif"]) — keduanya diperiksa dengan aturan yang sama.
+      const salah = periksaKunciAlternatif(kunciDariJson(item.jawaban_benar))
       if (salah) errs.push(`#${idx + 1}: ${salah.toLowerCase()}`)
     }
     return errs
@@ -665,7 +678,7 @@ export default function SoalPage() {
         jawaban_benar: satuJawaban(item.tipe)
           ? (pilihanObj?.findIndex((p: any) => p.benar) ?? null)
           : punyaKunciTeks(item.tipe)
-            ? normalisasiKunci(String(item.jawaban_benar ?? ""))
+            ? kunciDariJson(item.jawaban_benar)
             : null,
         status: "draft",
       }
@@ -724,7 +737,7 @@ export default function SoalPage() {
         tingkat_kesulitan: "mudah",
         bab_id_text: babContoh,
         pilihan: [],
-        jawaban_benar: "fotosintesis",
+        jawaban_benar: ["fotosintesis", "photosynthesis"],
       },
     ]
     const blob = new Blob([JSON.stringify(template, null, 2)], { type: "application/json" })
@@ -1423,7 +1436,7 @@ export default function SoalPage() {
                       type="text"
                       value={kunciIsian}
                       onChange={e => setKunciIsian(e.target.value)}
-                      placeholder="Satu kata, mis. fotosintesis"
+                      placeholder="fotosintesis, photosynthesis"
                       className="w-full px-3 py-2.5 text-sm outline-none"
                       style={{
                         border: `1.5px solid ${kunciSalah ? "#dc2626" : "var(--pp-ink)"}`,
@@ -1432,8 +1445,37 @@ export default function SoalPage() {
                         color: "var(--pp-ink)",
                       }}
                     />
+
+                    {/* Pecahan komanya ditampilkan balik. Tanpa ini guru tidak
+                        punya cara tahu bahwa "km/jam" tetap satu kunci sedangkan
+                        "HP, handphone" jadi dua — dan baru sadar setelah soalnya
+                        dinilai salah. */}
+                    {kunciDaftar.length > 0 && !kunciSalah && (
+                      <div className="flex flex-wrap gap-1.5 mt-2">
+                        {kunciDaftar.map((k, i) => (
+                          <span
+                            key={i}
+                            className="text-[11px] px-2 py-0.5 font-semibold"
+                            style={{
+                              border: "1px solid var(--pp-ink)",
+                              borderRadius: 999,
+                              backgroundColor: "var(--pp-mint)",
+                              color: "var(--pp-ink)",
+                            }}
+                          >
+                            {k}
+                          </span>
+                        ))}
+                        {kunciDaftar.length > 1 && (
+                          <span className="text-[11px] self-center" style={{ color: "var(--pp-muted)" }}>
+                            {kunciDaftar.length} alternatif — semuanya dianggap benar
+                          </span>
+                        )}
+                      </div>
+                    )}
+
                     <div className="text-[11px] mt-1.5" style={{ color: kunciSalah ? "#dc2626" : "var(--pp-muted)" }}>
-                      {kunciSalah ?? "Harus satu kata. Tanda hubung dan apostrof dihitung menyatu — \"anak-anak\" tetap satu kata."}
+                      {kunciSalah ?? "Tiap alternatif satu kata, dipisah koma. Tanda hubung & apostrof menyatu (\"anak-anak\" satu kata); garis miring TIDAK memisah, jadi \"km/jam\" tetap satu kunci."}
                     </div>
                   </div>
                 )}
