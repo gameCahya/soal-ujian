@@ -101,6 +101,7 @@ const TIPE_EXPORT_MAP: Record<string, string> = {
   ceklist: 'ceklist',
   isian_singkat: 'isian_singkat',
   benar_salah: 'benar_salah',
+  pilgan_kategori: 'pilihan_ganda_kategori',
 }
 
 export function downloadJSON(soalList: SoalDownload[], filename: string): void {

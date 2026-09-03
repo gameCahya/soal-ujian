@@ -13,7 +13,7 @@ import { supabase } from "@/lib/supabase"
 import { ambilTugasMenulis, ambilUjianPsat, labelUjian, KESULITAN_OPTIONS, KESULITAN_LABELS, KESULITAN_LABELS_PANJANG, type PatokanUjianRow, type TugasMenulis, type UjianPsat } from "@/lib/ujian"
 import ThemeToggle from "@/components/ThemeToggle"
 
-const TIPE_OPTIONS     = ["pilgan", "ceklist", "essay", "isian_singkat", "benar_salah"]
+const TIPE_OPTIONS     = ["pilgan", "ceklist", "essay", "isian_singkat", "benar_salah", "pilgan_kategori"]
 
 interface UserData {
   id: string

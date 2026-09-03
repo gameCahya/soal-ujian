@@ -22,10 +22,11 @@ interface BabMatrix {
   data: Record<string, number>
 }
 
-const TIPE_OPTIONS = ["pilgan", "ceklist", "essay", "isian_singkat", "benar_salah"]
+const TIPE_OPTIONS = ["pilgan", "ceklist", "essay", "isian_singkat", "benar_salah", "pilgan_kategori"]
 
 /** Tipe yang punya daftar pilihan jawaban. */
-const punyaPilihan = (t: string) => t === "pilgan" || t === "ceklist" || t === "benar_salah"
+const punyaPilihan = (t: string) =>
+  t === "pilgan" || t === "ceklist" || t === "benar_salah" || t === "pilgan_kategori"
 /** Tipe dengan tepat SATU jawaban benar (radio, bukan ceklist). */
 const satuJawaban = (t: string) => t === "pilgan" || t === "benar_salah"
 /** Pilihan tetap untuk benar_salah — guru tidak perlu mengetiknya. */
@@ -37,6 +38,7 @@ const TIPE_LABELS: Record<string, string> = {
   essay: "Essay",
   isian_singkat: "Isian Singkat",
   benar_salah: "Benar/Salah",
+  pilgan_kategori: "Pilgan Berkategori",
 }
 
 const TIPE_COLORS: Record<string, { bg: string; accent: string }> = {
@@ -44,7 +46,8 @@ const TIPE_COLORS: Record<string, { bg: string; accent: string }> = {
   ceklist:       { bg: "#DAF5E7", accent: "#15803d" },
   essay:         { bg: "#FFE3D0", accent: "#c2410c" },
   isian_singkat: { bg: "#FFF5C6", accent: "#92400e" },
-  benar_salah:   { bg: "#D8ECFF", accent: "#1d4ed8" },
+  benar_salah:     { bg: "#D8ECFF", accent: "#1d4ed8" },
+  pilgan_kategori: { bg: "#FFE0EC", accent: "#be185d" },
 }
 
 const KESULITAN_COLORS: Record<string, { bg: string; text: string }> = {
@@ -65,7 +68,8 @@ const BOBOT_DEFAULT: Record<string, Record<string, number>> = {
   ceklist:       { mudah: 1.5, sedang: 2.0, sulit: 2.5 },
   essay:         { mudah: 2.0, sedang: 3.0, sulit: 4.0 },
   isian_singkat: { mudah: 1.0, sedang: 1.5, sulit: 2.0 },
-  benar_salah:   { mudah: 1.0, sedang: 1.0, sulit: 1.5 },
+  benar_salah:     { mudah: 1.0, sedang: 1.0, sulit: 1.5 },
+  pilgan_kategori: { mudah: 3.0, sedang: 4.0, sulit: 5.0 },
 }
 
 type BobotConfig = Record<string, number>
@@ -415,7 +419,7 @@ export default function SoalPage() {
       ? pilihan.map((p, i) => ({
           id: i,
           teks: p,
-          benar: selectedTipe === "ceklist" ? jawabanBenarCeklist.includes(i) : i === jawabanBenar,
+          benar: satuJawaban(selectedTipe) ? i === jawabanBenar : jawabanBenarCeklist.includes(i),
         }))
       : null
 
@@ -536,7 +540,7 @@ export default function SoalPage() {
       if (satuJawaban(soalData.tipe)) {
         const idx = soalData.pilihan.findIndex((p: any) => p.benar)
         if (idx >= 0) setJawabanBenar(idx)
-      } else if (soalData.tipe === "ceklist") {
+      } else if (punyaPilihan(soalData.tipe)) {
         setJawabanBenarCeklist(soalData.pilihan.filter((p: any) => p.benar).map((p: any) => p.id))
       }
     }
@@ -600,7 +604,7 @@ export default function SoalPage() {
   const validateBatchItem = (item: any, idx: number): string[] => {
     const errs: string[] = []
     if (!item.pertanyaan?.trim()) errs.push(`#${idx + 1}: pertanyaan wajib diisi`)
-    if (!TIPE_OPTIONS.includes(item.tipe)) errs.push(`#${idx + 1}: tipe tidak valid — "${item.tipe}" (pilgan/ceklist/essay/isian_singkat/benar_salah)`)
+    if (!TIPE_OPTIONS.includes(item.tipe)) errs.push(`#${idx + 1}: tipe tidak valid — "${item.tipe}" (pilgan/ceklist/essay/isian_singkat/benar_salah/pilgan_kategori)`)
     if (!(KESULITAN_OPTIONS as readonly string[]).includes(item.tingkat_kesulitan)) errs.push(`#${idx + 1}: tingkat_kesulitan tidak valid — "${item.tingkat_kesulitan}" (tulis mudah/sedang/sulit; di layar tampil LOTS/MOTS/HOTS)`)
     const validBabs = matrixData.map(b => b.bab_id_text)
     if (!validBabs.includes(item.bab_id_text)) errs.push(`#${idx + 1}: bab_id_text tidak ditemukan — "${item.bab_id_text}"`)
