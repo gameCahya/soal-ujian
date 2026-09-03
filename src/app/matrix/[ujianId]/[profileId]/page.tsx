@@ -9,7 +9,7 @@ interface MatrixRow {
   data: Record<string, number>
 }
 
-const TIPE_OPTIONS = ["pilgan", "ceklist", "essay", "isian_singkat", "benar_salah"]
+const TIPE_OPTIONS = ["pilgan", "ceklist", "essay", "isian_singkat", "benar_salah", "pilgan_kategori"]
 
 export default async function PublikMatrixPage({ params }: { params: Promise<{ ujianId: string; profileId: string }> }) {
   const { ujianId, profileId } = await params

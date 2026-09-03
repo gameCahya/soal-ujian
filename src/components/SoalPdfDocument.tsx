@@ -23,9 +23,9 @@ const LABELS = ['A', 'B', 'C', 'D', 'E']
 
 const BADGE_BASE = { fontSize: 8, paddingHorizontal: 5, paddingVertical: 2, borderRadius: 3 }
 
-const TIPE_ORDER = ['pilgan', 'ceklist', 'essay', 'isian_singkat']
+const TIPE_ORDER = ['pilgan', 'ceklist', 'essay', 'isian_singkat', 'benar_salah', 'pilgan_kategori']
 const KESULITAN_ORDER = ['mudah', 'sedang', 'sulit']
-const TIPE_SHORT: Record<string, string> = { pilgan: 'PG', ceklist: 'CK', essay: 'ES', isian_singkat: 'IS' }
+const TIPE_SHORT: Record<string, string> = { pilgan: 'PG', ceklist: 'CK', essay: 'ES', isian_singkat: 'IS', benar_salah: 'BS', pilgan_kategori: 'PK' }
 const KESULITAN_SHORT: Record<string, string> = { mudah: 'L', sedang: 'M', sulit: 'H' }
 
 const styles = StyleSheet.create({

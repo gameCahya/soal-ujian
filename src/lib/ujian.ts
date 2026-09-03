@@ -8,7 +8,7 @@ import { supabase } from "@/lib/supabase"
  * lama menyimpan angkanya sebagai CSV posisional. Sekarang satu sumber.
  */
 
-export const TIPE_OPTIONS = ["pilgan", "ceklist", "isian_singkat", "essay", "benar_salah"] as const
+export const TIPE_OPTIONS = ["pilgan", "ceklist", "isian_singkat", "essay", "benar_salah", "pilgan_kategori"] as const
 export const KESULITAN_OPTIONS = ["mudah", "sedang", "sulit"] as const
 
 export type Tipe = (typeof TIPE_OPTIONS)[number]
@@ -20,6 +20,7 @@ export const TIPE_LABELS: Record<string, string> = {
   isian_singkat: "Isian Singkat",
   essay: "Essay",
   benar_salah: "Benar/Salah",
+  pilgan_kategori: "Pilgan Berkategori",
 }
 
 /**
@@ -31,7 +32,8 @@ export const TIPE_COLORS: Record<string, { bg: string; accent: string }> = {
   ceklist:       { bg: "#DAF5E7", accent: "#15803d" },
   isian_singkat: { bg: "#FFF5C6", accent: "#92400e" },
   essay:         { bg: "#FFE3D0", accent: "#c2410c" },
-  benar_salah:   { bg: "#D8ECFF", accent: "#1d4ed8" },
+  benar_salah:     { bg: "#D8ECFF", accent: "#1d4ed8" },
+  pilgan_kategori: { bg: "#FFE0EC", accent: "#be185d" },
 }
 
 /** Tipe yang kuncinya berupa SATU KATA yang diketik, bukan pilihan. */
@@ -117,7 +119,9 @@ export const BOBOT_DEFAULT: Record<string, Record<string, number>> = {
   ceklist:       { mudah: 1.5, sedang: 2.0, sulit: 2.5 },
   isian_singkat: { mudah: 1.0, sedang: 1.5, sulit: 2.0 },
   essay:         { mudah: 2.0, sedang: 3.0, sulit: 4.0 },
-  benar_salah:   { mudah: 1.0, sedang: 1.0, sulit: 1.5 },
+  benar_salah:     { mudah: 1.0, sedang: 1.0, sulit: 1.5 },
+  // Mengikuti profil TKA di SOP PTS 1 (LOTS 3 / MOTS 4 / HOTS 5).
+  pilgan_kategori: { mudah: 3.0, sedang: 4.0, sulit: 5.0 },
 }
 
 /**
