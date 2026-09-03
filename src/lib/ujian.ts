@@ -120,10 +120,28 @@ export const BOBOT_DEFAULT: Record<string, Record<string, number>> = {
   benar_salah:   { mudah: 1.0, sedang: 1.0, sulit: 1.5 },
 }
 
+/**
+ * Label kesulitan memakai istilah taksonomi berpikir yang dipakai kurikulum:
+ * LOTS / MOTS / HOTS.
+ *
+ * Yang berganti HANYA yang terbaca di layar. Nilai tersimpannya tetap
+ * "mudah"/"sedang"/"sulit" karena dipakai CHECK constraint psat_patokan_ujian,
+ * kunci grid `<tipe>_<kesulitan>_keluar` di psat_matrix_input, jembatan ke
+ * public.ujian_konfigurasi_bab, sampai generator soal acak di LMS. Mengganti
+ * nilai tersimpannya berarti migrasi lintas dua aplikasi tanpa satu pun
+ * keuntungan yang tidak sudah didapat dari mengganti labelnya saja.
+ */
 export const KESULITAN_LABELS: Record<string, string> = {
-  mudah: "Mudah",
-  sedang: "Sedang",
-  sulit: "Sulit",
+  mudah: "LOTS",
+  sedang: "MOTS",
+  sulit: "HOTS",
+}
+
+/** Kepanjangan untuk tooltip — singkatannya belum tentu langsung dikenali. */
+export const KESULITAN_LABELS_PANJANG: Record<string, string> = {
+  mudah: "LOTS — Lower Order Thinking Skills (sebelumnya: Mudah)",
+  sedang: "MOTS — Middle Order Thinking Skills (sebelumnya: Sedang)",
+  sulit: "HOTS — Higher Order Thinking Skills (sebelumnya: Sulit)",
 }
 
 /** Ujian pada siklus aktif yang soalnya ditentukan super admin. */

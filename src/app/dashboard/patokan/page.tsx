@@ -12,6 +12,7 @@ import {
   KESULITAN_OPTIONS,
   TIPE_LABELS,
   KESULITAN_LABELS,
+  KESULITAN_LABELS_PANJANG,
   TIPE_COLORS,
   BOBOT_DEFAULT,
   gridKosong,
@@ -661,10 +662,11 @@ export default function AdminPage() {
                               </td>
                             )}
                             <td
-                              className="px-3 py-1.5 text-xs capitalize font-medium"
+                              className="px-3 py-1.5 text-xs font-medium"
+                              title={KESULITAN_LABELS_PANJANG[kesulitan]}
                               style={{ color: "var(--pp-ink-2)", borderRight: "1.5px solid var(--pp-ink)", borderBottom: "1px solid var(--pp-line)" }}
                             >
-                              {kesulitan}
+                              {KESULITAN_LABELS[kesulitan] ?? kesulitan}
                             </td>
                             {TIPE_OPTIONS.map(tipe => (
                               <React.Fragment key={tipe}>

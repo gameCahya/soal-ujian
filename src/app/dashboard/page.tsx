@@ -10,11 +10,10 @@ import {
   LogOut, Lock, BookOpen, ArrowRight,
 } from "lucide-react"
 import { supabase } from "@/lib/supabase"
-import { ambilTugasMenulis, ambilUjianPsat, labelUjian, type PatokanUjianRow, type TugasMenulis, type UjianPsat } from "@/lib/ujian"
+import { ambilTugasMenulis, ambilUjianPsat, labelUjian, KESULITAN_OPTIONS, KESULITAN_LABELS, KESULITAN_LABELS_PANJANG, type PatokanUjianRow, type TugasMenulis, type UjianPsat } from "@/lib/ujian"
 import ThemeToggle from "@/components/ThemeToggle"
 
 const TIPE_OPTIONS     = ["pilgan", "ceklist", "essay", "isian_singkat", "benar_salah"]
-const KESULITAN_OPTIONS = ["mudah", "sedang", "sulit"]
 
 interface UserData {
   id: string
@@ -882,7 +881,7 @@ export default function DashboardPage() {
                             return (
                               <div key={kesulitan} className="grid grid-cols-3 items-center px-4 py-2.5"
                                    style={{ borderBottom: ki < 2 ? "1px solid var(--pp-line)" : "none" }}>
-                                <span className="text-xs capitalize" style={{ color: "var(--pp-ink-2)" }}>{kesulitan}</span>
+                                <span className="text-xs" title={KESULITAN_LABELS_PANJANG[kesulitan]} style={{ color: "var(--pp-ink-2)" }}>{KESULITAN_LABELS[kesulitan] ?? kesulitan}</span>
                                 <div className="flex justify-center">
                                   <span style={cellStyle(okKeluar, tgtKeluar)}>
                                     {tgtKeluar > 0 && (okKeluar

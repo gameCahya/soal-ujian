@@ -1,6 +1,6 @@
 import { supabase } from "@/lib/supabase"
 import { ArrowLeft, LayoutGrid, Inbox } from "lucide-react"
-import { labelUjian, type UjianPsat } from "@/lib/ujian"
+import { labelUjian, KESULITAN_OPTIONS, KESULITAN_LABELS, KESULITAN_LABELS_PANJANG, type UjianPsat } from "@/lib/ujian"
 
 export const revalidate = 300
 
@@ -10,7 +10,6 @@ interface MatrixRow {
 }
 
 const TIPE_OPTIONS = ["pilgan", "ceklist", "essay", "isian_singkat", "benar_salah"]
-const KESULITAN_OPTIONS = ["mudah", "sedang", "sulit"]
 
 export default async function PublikMatrixPage({ params }: { params: Promise<{ ujianId: string; profileId: string }> }) {
   const { ujianId, profileId } = await params
@@ -79,8 +78,8 @@ export default async function PublikMatrixPage({ params }: { params: Promise<{ u
                       <tr style={{ borderBottom: "1px solid var(--color-border)" }}>
                         <th className="px-3 py-2 text-left font-medium" style={{ color: "var(--color-muted-foreground)" }}>Tipe</th>
                         {KESULITAN_OPTIONS.map(k => (
-                          <th key={k} colSpan={2} className="px-3 py-2 text-center font-medium capitalize" style={{ color: "var(--color-muted-foreground)" }}>
-                            {k}
+                          <th key={k} colSpan={2} className="px-3 py-2 text-center font-medium" title={KESULITAN_LABELS_PANJANG[k]} style={{ color: "var(--color-muted-foreground)" }}>
+                            {KESULITAN_LABELS[k] ?? k}
                           </th>
                         ))}
                       </tr>

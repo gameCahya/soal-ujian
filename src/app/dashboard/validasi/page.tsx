@@ -7,7 +7,7 @@ import Toast from "@/components/Toast"
 import { CheckCircle, Clock, AlertCircle, ArrowLeft, Pencil, Trash2, Check, X, Highlighter } from "lucide-react"
 import ThemeToggle from "@/components/ThemeToggle"
 import DownloadDropdown from "@/components/DownloadDropdown"
-import { ambilUjianPsat, labelUjian, pesanError, type UjianPsat } from "@/lib/ujian"
+import { ambilUjianPsat, labelUjian, pesanError, KESULITAN_LABELS, KESULITAN_LABELS_PANJANG, type UjianPsat } from "@/lib/ujian"
 
 /** Ujian yang dibuka dari dashboard, dioper lewat localStorage. */
 const VALIDASI_UJIAN_KEY = "psat_validasi_ujian_id"
@@ -780,10 +780,11 @@ export default function ValidasiPage() {
                             {TIPE_LABELS[soal.tipe] || soal.tipe}
                           </span>
                           <span
-                            className="text-xs px-2 py-0.5 rounded-full font-semibold capitalize"
+                            className="text-xs px-2 py-0.5 rounded-full font-semibold"
+                            title={KESULITAN_LABELS_PANJANG[soal.tingkat_kesulitan]}
                             style={{ backgroundColor: kesColor.bg, color: kesColor.text, border: "1px solid var(--pp-ink)" }}
                           >
-                            {soal.tingkat_kesulitan}
+                            {KESULITAN_LABELS[soal.tingkat_kesulitan] ?? soal.tingkat_kesulitan}
                           </span>
                           <span
                             className="text-xs px-2 py-0.5 rounded-full font-medium"
