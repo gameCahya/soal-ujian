@@ -12,7 +12,7 @@ import DownloadDropdown from "@/components/DownloadDropdown"
 import { sampleSoalByMatrix } from "@/lib/downloadSoal"
 import { driver } from "driver.js"
 import "driver.js/dist/driver.css"
-import { ambilTugasMenulis, labelUjian, pesanError, punyaKunciTeks, pisahKunci, periksaKunciTeks, periksaKunciAlternatif, KESULITAN_OPTIONS, KESULITAN_LABELS, KESULITAN_LABELS_PANJANG, type TugasMenulis } from "@/lib/ujian"
+import { ambilTugasMenulis, labelUjian, pesanError, punyaKunciTeks, pisahKunci, periksaKunciTeks, periksaKunciAlternatif, punyaRubrik, rapikanRubrik, bacaRubrik, totalPoinRubrik, KESULITAN_OPTIONS, KESULITAN_LABELS, KESULITAN_LABELS_PANJANG, type TugasMenulis, type BarisRubrik } from "@/lib/ujian"
 
 /** Ujian yang sedang dikerjakan, dibagi dengan halaman matrix. */
 const UJIAN_KEY = "psat_ujian_id"
@@ -130,6 +130,7 @@ export default function SoalPage() {
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" | "info" } | null>(null)
   const [expandedBabs, setExpandedBabs] = useState<Set<string>>(new Set())
   const [filterTipe, setFilterTipe] = useState<string | null>(null)
+  const [rubrik, setRubrik] = useState<BarisRubrik[]>([])
   const [filterKesulitan, setFilterKesulitan] = useState<string | null>(null)
   const [filterStatus, setFilterStatus] = useState<string | null>(null)
 
@@ -343,6 +344,7 @@ export default function SoalPage() {
     setJawabanBenar(0)
     setJawabanBenarCeklist([])
     setKunciIsian("")
+    setRubrik([])
     setSelectedTipe("pilgan")
     setSelectedKesulitan("mudah")
     setBobot(getDefaultBobot("pilgan", "mudah"))
@@ -358,6 +360,7 @@ export default function SoalPage() {
     setJawabanBenar(0)
     setJawabanBenarCeklist([])
     setKunciIsian("")
+    setRubrik([])
     setEditingId(null)
   }
 
@@ -386,6 +389,10 @@ export default function SoalPage() {
     setPilihanGambar(["", "", "", ""])
     setJawabanBenar(0)
     setJawabanBenarCeklist([])
+    // Kunci isian dan rubrik ikut dibersihkan: keduanya milik SATU soal, dan
+    // membiarkannya membuat isi slot sebelumnya menempel diam-diam ke slot baru.
+    setKunciIsian("")
+    setRubrik([])
     setSelectedTipe(tipe)
     setSelectedKesulitan(kesulitan)
     setBobot(getDefaultBobot(tipe, kesulitan))
@@ -444,6 +451,7 @@ export default function SoalPage() {
           : punyaKunciTeks(selectedTipe)
             ? kunciDaftar
             : null,
+        rubrik: punyaRubrik(selectedTipe) ? rapikanRubrik(rubrik) : null,
         updated_at: new Date().toISOString(),
       }).eq("id", editingId)
       err = error
@@ -467,6 +475,7 @@ export default function SoalPage() {
           : punyaKunciTeks(selectedTipe)
             ? kunciDaftar
             : null,
+        rubrik: punyaRubrik(selectedTipe) ? rapikanRubrik(rubrik) : null,
         gambar_url: gambarUrl || null,
       })
       err = error
@@ -526,6 +535,7 @@ export default function SoalPage() {
     setBobot(soalData.bobot)
     setEditingId(soalData.id)
     setGambarUrl(soalData.gambar_url || "")
+    setRubrik(bacaRubrik(soalData.rubrik))
 
     if (punyaKunciTeks(soalData.tipe)) {
       // Larik adalah bentuk simpanannya; string diterima juga supaya baris yang
@@ -1430,6 +1440,72 @@ export default function SoalPage() {
                 {/* Kunci isian singkat. Sebelumnya tipe ini sama sekali tidak
                     punya kunci — soal tersimpan tanpa jawaban benar, dan guru
                     penilai di LMS tidak punya acuan apa pun. */}
+                {punyaRubrik(selectedTipe) && (
+                  <div>
+                    <div className="flex items-baseline justify-between mb-2 gap-3 flex-wrap">
+                      <div className="text-xs font-bold uppercase" style={{ color: "var(--pp-muted)", letterSpacing: "0.1em" }}>
+                        Rubrik Penilaian
+                      </div>
+                      {rubrik.length > 0 && (
+                        <div className="text-xs" style={{ color: totalPoinRubrik(rubrik) === bobot ? "#15803d" : "#b45309" }}>
+                          {totalPoinRubrik(rubrik)} dari {bobot} poin
+                          {totalPoinRubrik(rubrik) !== bobot && " — belum sama dengan bobot soal"}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Peringatan, bukan penolakan. Bobot bisa diubah admin di
+                        halaman Patokan sesudah soal ditulis, jadi memaksa sama
+                        di sini akan mengunci pekerjaan yang sah. */}
+                    <div className="text-xs mb-2" style={{ color: "var(--pp-muted)" }}>
+                      Dipakai penilai sebagai daftar centang. Kosongkan kalau soal ini dinilai tanpa rubrik.
+                    </div>
+
+                    <div className="flex flex-col gap-1.5">
+                      {rubrik.map((b, i) => (
+                        <div key={i} className="flex gap-1.5 items-start">
+                          <input
+                            type="text"
+                            value={b.kriteria}
+                            onChange={e => {
+                              const n = [...rubrik]; n[i] = { ...n[i], kriteria: e.target.value }; setRubrik(n)
+                            }}
+                            placeholder={`Kriteria ${i + 1} — mis. "Menuliskan rumus dengan benar"`}
+                            className="flex-1 min-w-0 px-3 py-2 text-sm outline-none"
+                            style={{ border: "1.5px solid var(--pp-ink)", borderRadius: 10, backgroundColor: "var(--pp-bg)", color: "var(--pp-ink)" }}
+                          />
+                          <input
+                            type="number" min="0" step="0.25"
+                            value={b.poin}
+                            onChange={e => {
+                              const n = [...rubrik]; n[i] = { ...n[i], poin: parseFloat(e.target.value) || 0 }; setRubrik(n)
+                            }}
+                            className="w-20 shrink-0 px-2 py-2 text-sm text-center outline-none"
+                            style={{ border: "1.5px solid var(--pp-ink)", borderRadius: 10, backgroundColor: "var(--pp-bg)", color: "var(--pp-ink)" }}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setRubrik(rubrik.filter((_, j) => j !== i))}
+                            title="Hapus kriteria"
+                            className="shrink-0 px-2.5 py-2 text-sm font-bold"
+                            style={{ border: "1.5px solid var(--pp-ink)", borderRadius: 10, backgroundColor: "var(--pp-card)", color: "#dc2626" }}
+                          >
+                            ×
+                          </button>
+                        </div>
+                      ))}
+                      <button
+                        type="button"
+                        onClick={() => setRubrik([...rubrik, { kriteria: "", poin: 0 }])}
+                        className="self-start text-xs font-semibold px-3 py-1.5 mt-0.5"
+                        style={{ border: "1.5px dashed var(--pp-ink)", borderRadius: 999, backgroundColor: "transparent", color: "var(--pp-ink)" }}
+                      >
+                        + Tambah kriteria
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 {punyaKunciTeks(selectedTipe) && (
                   <div>
                     <div className="text-xs font-bold uppercase mb-2" style={{ color: "var(--pp-muted)", letterSpacing: "0.1em" }}>

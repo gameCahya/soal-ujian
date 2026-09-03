@@ -36,6 +36,45 @@ export const TIPE_COLORS: Record<string, { bg: string; accent: string }> = {
   pilgan_kategori: { bg: "#FFE0EC", accent: "#be185d" },
 }
 
+/**
+ * Satu baris rubrik penilaian esai. Bentuknya sengaja sama persis dengan yang
+ * disimpan basis data (public.rubrik_bentuk_sah menjaganya di kedua schema),
+ * supaya tidak ada lapisan penerjemah yang bisa menyimpang.
+ */
+export interface BarisRubrik {
+  kriteria: string
+  poin: number
+}
+
+/** Tipe yang dinilai manusia, jadi rubrik berpoin ada gunanya. */
+export const punyaRubrik = (t: string) => t === "essay" || t === "esai"
+
+/**
+ * Rapikan rubrik sebelum disimpan: buang baris tanpa teks, bulatkan poin ke
+ * kelipatan 0,25, dan kembalikan null kalau tak ada yang tersisa.
+ *
+ * null (bukan larik kosong) supaya "soal ini tidak memakai rubrik" dan "rubrik
+ * ada tapi kosong" tidak tertukar di layar penilai.
+ */
+export function rapikanRubrik(baris: BarisRubrik[]): BarisRubrik[] | null {
+  const bersih = baris
+    .map(b => ({ kriteria: b.kriteria.trim(), poin: Math.max(0, Math.round((Number(b.poin) || 0) * 4) / 4) }))
+    .filter(b => b.kriteria !== "")
+  return bersih.length > 0 ? bersih : null
+}
+
+/** Baca rubrik dari basis data dengan aman — bentuk lama/rusak jadi larik kosong. */
+export function bacaRubrik(nilai: unknown): BarisRubrik[] {
+  if (!Array.isArray(nilai)) return []
+  return nilai
+    .filter((e): e is Record<string, unknown> => typeof e === "object" && e !== null)
+    .map(e => ({ kriteria: String(e.kriteria ?? ""), poin: Number(e.poin) || 0 }))
+    .filter(b => b.kriteria !== "")
+}
+
+export const totalPoinRubrik = (baris: BarisRubrik[]) =>
+  baris.reduce((s, b) => s + (Number(b.poin) || 0), 0)
+
 /** Tipe yang kuncinya berupa SATU KATA yang diketik, bukan pilihan. */
 export const punyaKunciTeks = (t: string) => t === "isian_singkat"
 
