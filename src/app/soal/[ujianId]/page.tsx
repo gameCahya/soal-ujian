@@ -1,6 +1,6 @@
 import { supabase } from "@/lib/supabase"
 import { ArrowLeft, BookOpen, FileQuestion } from "lucide-react"
-import { labelUjian, type UjianPsat } from "@/lib/ujian"
+import { labelUjian, KESULITAN_LABELS, KESULITAN_LABELS_PANJANG, type UjianPsat } from "@/lib/ujian"
 
 export const revalidate = 300
 
@@ -124,10 +124,11 @@ export default async function PublikSoalPage({ params }: { params: Promise<{ uji
                             </span>
                             {s.tingkat_kesulitan && (
                               <span
-                                className="text-xs px-1.5 py-0.5 rounded capitalize"
+                                className="text-xs px-1.5 py-0.5 rounded"
+                                title={KESULITAN_LABELS_PANJANG[s.tingkat_kesulitan]}
                                 style={{ backgroundColor: kesColor.bg, color: kesColor.text }}
                               >
-                                {s.tingkat_kesulitan}
+                                {KESULITAN_LABELS[s.tingkat_kesulitan] ?? s.tingkat_kesulitan}
                               </span>
                             )}
                           </div>

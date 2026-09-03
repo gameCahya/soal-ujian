@@ -14,9 +14,9 @@ const TIPE_LABEL: Record<string, string> = {
 }
 
 const KESULITAN_LABEL: Record<string, string> = {
-  mudah: 'Mudah',
-  sedang: 'Sedang',
-  sulit: 'Sulit',
+  mudah: 'LOTS',
+  sedang: 'MOTS',
+  sulit: 'HOTS',
 }
 
 const LABELS = ['A', 'B', 'C', 'D', 'E']
@@ -26,7 +26,7 @@ const BADGE_BASE = { fontSize: 8, paddingHorizontal: 5, paddingVertical: 2, bord
 const TIPE_ORDER = ['pilgan', 'ceklist', 'essay', 'isian_singkat']
 const KESULITAN_ORDER = ['mudah', 'sedang', 'sulit']
 const TIPE_SHORT: Record<string, string> = { pilgan: 'PG', ceklist: 'CK', essay: 'ES', isian_singkat: 'IS' }
-const KESULITAN_SHORT: Record<string, string> = { mudah: 'M', sedang: 'S', sulit: 'T' }
+const KESULITAN_SHORT: Record<string, string> = { mudah: 'L', sedang: 'M', sulit: 'H' }
 
 const styles = StyleSheet.create({
   page: { padding: 30, fontSize: 10, fontFamily: 'Helvetica', color: '#1f2937' },

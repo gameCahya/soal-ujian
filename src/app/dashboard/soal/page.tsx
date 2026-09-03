@@ -12,7 +12,7 @@ import DownloadDropdown from "@/components/DownloadDropdown"
 import { sampleSoalByMatrix } from "@/lib/downloadSoal"
 import { driver } from "driver.js"
 import "driver.js/dist/driver.css"
-import { ambilTugasMenulis, labelUjian, pesanError, punyaKunciTeks, pisahKunci, periksaKunciTeks, periksaKunciAlternatif, type TugasMenulis } from "@/lib/ujian"
+import { ambilTugasMenulis, labelUjian, pesanError, punyaKunciTeks, pisahKunci, periksaKunciTeks, periksaKunciAlternatif, KESULITAN_OPTIONS, KESULITAN_LABELS, KESULITAN_LABELS_PANJANG, type TugasMenulis } from "@/lib/ujian"
 
 /** Ujian yang sedang dikerjakan, dibagi dengan halaman matrix. */
 const UJIAN_KEY = "psat_ujian_id"
@@ -23,7 +23,6 @@ interface BabMatrix {
 }
 
 const TIPE_OPTIONS = ["pilgan", "ceklist", "essay", "isian_singkat", "benar_salah"]
-const KESULITAN_OPTIONS = ["mudah", "sedang", "sulit"]
 
 /** Tipe yang punya daftar pilihan jawaban. */
 const punyaPilihan = (t: string) => t === "pilgan" || t === "ceklist" || t === "benar_salah"
@@ -406,7 +405,7 @@ export default function SoalPage() {
     const targetBank = getTargetBank(selectedBab, selectedTipe, selectedKesulitan)
 
     if (!editingId && currentCount >= targetBank) {
-      setToast({ message: `Bank soal ${selectedBab} — ${selectedTipe} ${selectedKesulitan} sudah penuh (${currentCount}/${targetBank})`, type: "error" })
+      setToast({ message: `Bank soal ${selectedBab} — ${TIPE_LABELS[selectedTipe] ?? selectedTipe} ${KESULITAN_LABELS[selectedKesulitan] ?? selectedKesulitan} sudah penuh (${currentCount}/${targetBank})`, type: "error" })
       return
     }
 
@@ -494,7 +493,7 @@ export default function SoalPage() {
     if (newCount >= target) {
       const next = findNextOpenSlot(updatedStats, savedBab, savedTipe, savedKesulitan)
       if (next) {
-        setToast({ message: `Slot penuh! Pindah ke ${TIPE_LABELS[next.tipe]} · ${next.kesulitan}`, type: "info" })
+        setToast({ message: `Slot penuh! Pindah ke ${TIPE_LABELS[next.tipe]} · ${KESULITAN_LABELS[next.kesulitan] ?? next.kesulitan}`, type: "info" })
         openSlot(next.bab, next.tipe, next.kesulitan)
       } else {
         setToast({ message: "Semua slot terpenuhi!", type: "success" })
@@ -602,7 +601,7 @@ export default function SoalPage() {
     const errs: string[] = []
     if (!item.pertanyaan?.trim()) errs.push(`#${idx + 1}: pertanyaan wajib diisi`)
     if (!TIPE_OPTIONS.includes(item.tipe)) errs.push(`#${idx + 1}: tipe tidak valid — "${item.tipe}" (pilgan/ceklist/essay/isian_singkat/benar_salah)`)
-    if (!KESULITAN_OPTIONS.includes(item.tingkat_kesulitan)) errs.push(`#${idx + 1}: tingkat_kesulitan tidak valid — "${item.tingkat_kesulitan}" (mudah/sedang/sulit)`)
+    if (!(KESULITAN_OPTIONS as readonly string[]).includes(item.tingkat_kesulitan)) errs.push(`#${idx + 1}: tingkat_kesulitan tidak valid — "${item.tingkat_kesulitan}" (tulis mudah/sedang/sulit; di layar tampil LOTS/MOTS/HOTS)`)
     const validBabs = matrixData.map(b => b.bab_id_text)
     if (!validBabs.includes(item.bab_id_text)) errs.push(`#${idx + 1}: bab_id_text tidak ditemukan — "${item.bab_id_text}"`)
     if (punyaPilihan(item.tipe) && (!Array.isArray(item.pilihan) || item.pilihan.length < 2))
@@ -1175,10 +1174,10 @@ export default function SoalPage() {
                               onClick={full ? undefined : () => openSlot(bab.bab_id_text, tipe, kesulitan)}
                             >
                               <span
-                                className="capitalize font-medium"
+                                className="font-medium"
                                 style={{ color: isSelected ? "#fff" : full ? "var(--pp-muted)" : "#dc2626" }}
                               >
-                                {TIPE_LABELS[tipe]} · {kesulitan}
+                                {TIPE_LABELS[tipe]} · {KESULITAN_LABELS[kesulitan] ?? kesulitan}
                               </span>
                               <span
                                 className="flex items-center gap-0.5 font-semibold"
@@ -1314,9 +1313,9 @@ export default function SoalPage() {
                             boxShadow: isSelected ? "none" : "2px 2px 0 0 var(--pp-ink)",
                             transition: "all 80ms",
                           }}
-                          className="capitalize"
+                          title={KESULITAN_LABELS_PANJANG[k]}
                         >
-                          {k}
+                          {KESULITAN_LABELS[k] ?? k}
                         </button>
                       )
                     })}
@@ -1620,7 +1619,8 @@ export default function SoalPage() {
                       <button
                         key={kes}
                         onClick={() => setFilterKesulitan(active ? null : kes)}
-                        className="text-xs px-2.5 py-1 rounded-full font-semibold capitalize transition-all"
+                        title={KESULITAN_LABELS_PANJANG[kes]}
+                        className="text-xs px-2.5 py-1 rounded-full font-semibold transition-all"
                         style={{
                           backgroundColor: active ? "#374151" : c.bg,
                           color: active ? "#fff" : c.text,
@@ -1628,7 +1628,7 @@ export default function SoalPage() {
                           boxShadow: active ? "none" : "1px 1px 0 0 var(--pp-line)",
                         }}
                       >
-                        {kes} ({count})
+                        {KESULITAN_LABELS[kes] ?? kes} ({count})
                       </button>
                     )
                   })}
@@ -1696,10 +1696,11 @@ export default function SoalPage() {
                               {TIPE_LABELS[soal.tipe] || soal.tipe}
                             </span>
                             <span
-                              className="text-xs px-2 py-0.5 rounded-full font-semibold capitalize"
+                              className="text-xs px-2 py-0.5 rounded-full font-semibold"
+                              title={KESULITAN_LABELS_PANJANG[soal.tingkat_kesulitan]}
                               style={{ backgroundColor: kesColor.bg, color: kesColor.text, border: "1px solid var(--pp-ink)" }}
                             >
-                              {soal.tingkat_kesulitan}
+                              {KESULITAN_LABELS[soal.tingkat_kesulitan] ?? soal.tingkat_kesulitan}
                             </span>
                             <span
                               className="text-xs px-2 py-0.5 rounded-full font-semibold"
@@ -2057,8 +2058,8 @@ export default function SoalPage() {
                             <span className="text-xs px-2 py-0.5 rounded-full font-semibold" style={{ backgroundColor: tc.bg, color: tc.accent, border: "1px solid var(--pp-ink)" }}>
                               {TIPE_LABELS[item.tipe] || item.tipe}
                             </span>
-                            <span className="text-xs px-2 py-0.5 rounded-full font-semibold capitalize" style={{ backgroundColor: kc.bg, color: kc.text, border: "1px solid var(--pp-ink)" }}>
-                              {item.tingkat_kesulitan}
+                            <span className="text-xs px-2 py-0.5 rounded-full font-semibold" title={KESULITAN_LABELS_PANJANG[item.tingkat_kesulitan]} style={{ backgroundColor: kc.bg, color: kc.text, border: "1px solid var(--pp-ink)" }}>
+                              {KESULITAN_LABELS[item.tingkat_kesulitan] ?? item.tingkat_kesulitan}
                             </span>
                             <span className="text-xs px-2 py-0.5 rounded-full" style={{ backgroundColor: "var(--pp-bg)", color: "var(--pp-ink-2)", border: "1px solid var(--pp-line)" }}>
                               {item.bab_id_text}

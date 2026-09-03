@@ -11,6 +11,8 @@ import "driver.js/dist/driver.css"
 import {
   TIPE_OPTIONS,
   KESULITAN_OPTIONS,
+  KESULITAN_LABELS,
+  KESULITAN_LABELS_PANJANG,
   TIPE_LABELS,
   warnaTipe,
   labelUjian,
@@ -750,8 +752,8 @@ export default function MatrixPage() {
                     const okB = tb > 0 && ab === tb
                     return (
                       <div key={k} className="mb-2">
-                        <div className="text-xs capitalize font-medium mb-1" style={{ color: "var(--pp-ink-2)" }}>
-                          {k}
+                        <div className="text-xs font-medium mb-1" title={KESULITAN_LABELS_PANJANG[k]} style={{ color: "var(--pp-ink-2)" }}>
+                          {KESULITAN_LABELS[k] ?? k}
                         </div>
                         <div className="flex gap-1">
                           <span
@@ -1052,10 +1054,11 @@ export default function MatrixPage() {
                                 </td>
                               )}
                               <td
-                                className="border px-3 py-2 capitalize text-xs font-medium"
+                                className="border px-3 py-2 text-xs font-medium"
+                                title={KESULITAN_LABELS_PANJANG[k]}
                                 style={{ borderColor: "var(--pp-ink)", color: "var(--pp-ink-2)" }}
                               >
-                                {k}
+                                {KESULITAN_LABELS[k] ?? k}
                               </td>
                               {babs.map(bab => {
                                 const p = matrixData[bab.id] || INITIAL_DATA
