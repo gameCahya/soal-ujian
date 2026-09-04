@@ -197,9 +197,54 @@ export default function UsersAdminPage() {
     if (!res.ok) { setToast({ message: result.error || "Gagal menyimpan profil.", type: "error" }); return }
 
     if (editForm.role === "validator") {
-      await supabase.from("psat_validator_mapel").delete().eq("validator_id", editForm.userId)
-      if (editValidatorMapels.length > 0) {
-        await supabase.from("psat_validator_mapel").insert(editValidatorMapels.map(mapelId => ({ validator_id: editForm.userId, mapel_id: mapelId })))
+      // Cakupan mapel ditulis sebagai SELISIH, bukan hapus-lalu-sisip.
+      //
+      // Versi lama menghapus seluruh baris lalu menyisipkan ulang, keduanya
+      // tanpa memeriksa galat, lalu SELALU menampilkan "Profil berhasil
+      // diperbarui!". Bila sisipannya ditolak — dan sejak FK-nya menunjuk
+      // public.profiles ada sebab penolakan baru — penugasan lama sudah
+      // terlanjur hilang dan admin diberi tahu semuanya beres. Layar inilah
+      // satu-satunya jalan memberi cakupan pada validator, jadi berbohong di
+      // sini berarti antrean validator tetap kosong tanpa ada yang tahu kenapa.
+      const { data: kini, error: bacaErr } = await supabase
+        .from("psat_validator_mapel").select("mapel_id").eq("validator_id", editForm.userId)
+      if (bacaErr) {
+        setToast({ message: "Profil tersimpan, tapi cakupan mapel gagal dibaca: " + bacaErr.message, type: "error" })
+        return
+      }
+
+      const sekarang: string[] = (kini ?? []).map((r: { mapel_id: string }) => r.mapel_id)
+      const dibuang = sekarang.filter(id => !editValidatorMapels.includes(id))
+      const ditambah = editValidatorMapels.filter(id => !sekarang.includes(id))
+
+      if (dibuang.length > 0) {
+        const { error } = await supabase
+          .from("psat_validator_mapel").delete()
+          .eq("validator_id", editForm.userId).in("mapel_id", dibuang)
+        if (error) {
+          setToast({ message: "Cakupan mapel gagal diperbarui: " + error.message, type: "error" })
+          return
+        }
+      }
+
+      if (ditambah.length > 0) {
+        // .select() wajib: penolakan RLS mengembalikan 0 baris TANPA galat,
+        // jadi "tidak ada error" bukan bukti apa pun sudah tersimpan.
+        const { data: masuk, error } = await supabase
+          .from("psat_validator_mapel")
+          .insert(ditambah.map(mapelId => ({ validator_id: editForm.userId, mapel_id: mapelId })))
+          .select("mapel_id")
+        if (error) {
+          setToast({ message: "Cakupan mapel gagal disimpan: " + error.message, type: "error" })
+          return
+        }
+        if ((masuk?.length ?? 0) !== ditambah.length) {
+          setToast({
+            message: `Cakupan mapel tidak tersimpan (${masuk?.length ?? 0} dari ${ditambah.length}). Pastikan Anda admin dan akun tujuan punya profil di LMS.`,
+            type: "error",
+          })
+          return
+        }
       }
     }
 
