@@ -19,6 +19,13 @@ const UJIAN_KEY = "psat_ujian_id"
 
 interface BabMatrix {
   bab_id_text: string
+  /**
+   * Tautan bab yang bertahan terhadap ganti nama. Dikirim bersama soal supaya
+   * impor tidak perlu menebak lewat nama — lihat migrasi 20260904000001 &
+   * lms-new 20260904c. bab_id_text tetap dipakai sebagai kunci pengelompokan
+   * di layar ini, dan database yang menjaganya tetap cocok.
+   */
+  bab_id: string | null
   data: Record<string, number>
 }
 
@@ -165,7 +172,7 @@ export default function SoalPage() {
 
     const { data: matrixRows } = await supabase
       .from("psat_matrix_input")
-      .select("bab_id_text,data")
+      .select("bab_id_text,bab_id,data")
       .eq("profile_id", uid)
       .eq("ujian_id", tugas.ujian_id)
       .eq("is_submitted", true)
@@ -398,6 +405,17 @@ export default function SoalPage() {
     setBobot(getDefaultBobot(tipe, kesulitan))
   }
 
+  /**
+   * Nama bab → tautan UUID-nya, diambil dari baris matriks yang sedang dipakai.
+   *
+   * Dikirim bersama soal supaya tautannya tidak bergantung pada nama. Bila
+   * baris matriksnya belum punya bab_id (baris warisan sebelum kolom itu ada),
+   * kembalikan null dan biarkan impor jatuh ke pencocokan nama seperti dulu —
+   * jangan menebak, karena tebakan yang salah menempelkan soal ke bab lain.
+   */
+  const babIdDari = (nama: string): string | null =>
+    matrixData.find(b => b.bab_id_text === nama)?.bab_id ?? null
+
   const handleSaveSoal = async () => {
     if (!user || !selectedBab || !pertanyaan.trim()) {
       setToast({ message: "Pertanyaan wajib diisi", type: "error" })
@@ -437,6 +455,7 @@ export default function SoalPage() {
         pertanyaan,
         tipe: selectedTipe,
         bab_id_text: selectedBab,
+        bab_id: babIdDari(selectedBab),
         ujian_id: tugasAktif?.ujian_id ?? null,
         mata_pelajaran_id: selectedMapelId,
         level: selectedKesulitan,
@@ -461,6 +480,7 @@ export default function SoalPage() {
         tipe: selectedTipe,
         guru_id: user.id,
         bab_id_text: selectedBab,
+        bab_id: babIdDari(selectedBab),
         ujian_id: tugasAktif?.ujian_id ?? null,
         mata_pelajaran_id: selectedMapelId,
         level: selectedKesulitan,
