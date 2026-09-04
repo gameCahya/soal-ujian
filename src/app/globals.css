@@ -206,6 +206,16 @@ input, textarea, select {
   pointer-events: none;
 }
 
+/* Rumus baru: node inline ber-data-latex, digambar KaTeX. Hanya perlu
+   diselaraskan dengan baris teks — sisanya urusan katex.min.css. */
+.math-inline {
+  display: inline-block;
+  vertical-align: middle;
+}
+
+/* Bentuk pecahan LAMA. Dipertahankan supaya soal yang sudah terlanjur memakainya
+   tidak mendadak berantakan sebelum migrasi konversi dijalankan. Editor tidak
+   lagi memproduksi bentuk ini. */
 .math-frac {
   display: inline-flex;
   flex-direction: column;
