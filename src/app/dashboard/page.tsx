@@ -60,6 +60,8 @@ export default function DashboardPage() {
   const [user, setUser]                         = useState<UserData | null>(null)
   const [hasProfile, setHasProfile]             = useState(false)
   const [noAccess, setNoAccess]                 = useState(false)
+  /** Email pemanggil, dipakai layar penolakan untuk mengenali akun PSAT lama. */
+  const [noAccessEmail, setNoAccessEmail]       = useState("")
   const [hasValidatorProfile, setHasValidatorProfile] = useState(false)
   const [hasMatrix, setHasMatrix]               = useState(false)
   const [submittedCount, setSubmittedCount]     = useState(0)
@@ -84,10 +86,18 @@ export default function DashboardPage() {
       if (profileQueryError) console.error("Query profile error:", profileQueryError)
 
       // Sejak identitas PSAT disatukan dengan LMS, keanggotaan ditentukan flag
-      // "Penulis Soal" yang dinyalakan admin di LMS — profil tidak lagi dibuat
+      // di public.profiles yang dinyalakan admin — profil tidak lagi dibuat
       // sendiri saat login pertama. Tanpa gerbang ini dashboard tetap terbuka
       // tapi semua query balik kosong, dan guru tidak tahu kenapa.
+      //
+      // ⚠️ Kondisi ini GENERIK: view psat.profiles mengembalikan nol baris.
+      // Sebabnya bisa flag penulis mati, flag VALIDATOR mati, status guru bukan
+      // 'aktif', atau akun @psat.com warisan aplikasi lama yang tak punya baris
+      // di public.profiles sejak cutover identitas 21 Agu 2026. Pesannya dulu
+      // menyebut "penulis soal" saja — menyuruh admin menyalakan izin yang salah
+      // untuk validator, lewat toggle yang sudah tidak ada lagi di LMS.
       if (!profileData) {
+        setNoAccessEmail(u.email || "")
         setNoAccess(true)
         setLoading(false)
         return
@@ -251,11 +261,25 @@ export default function DashboardPage() {
           <div className="font-display font-semibold text-xl mb-2" style={{ color: "var(--pp-ink)" }}>
             Akun Anda belum diberi akses
           </div>
-          <p className="mb-6" style={{ color: "var(--pp-muted)", fontSize: "14px", lineHeight: 1.55 }}>
-            Login Anda berhasil, tetapi akun ini belum ditandai sebagai penulis soal.
-            Minta admin menyalakan <strong>Soal PSAT &rarr; Tulis</strong> pada data guru Anda di LMS,
-            lalu masuk lagi.
-          </p>
+          {noAccessEmail.toLowerCase().endsWith("@psat.com") ? (
+            <p className="mb-6" style={{ color: "var(--pp-muted)", fontSize: "14px", lineHeight: 1.55 }}>
+              Anda masuk dengan <strong>{noAccessEmail}</strong> — akun aplikasi PSAT yang lama.
+              Akun itu sudah tidak dipakai sejak data guru disatukan dengan LMS.
+              Keluar, lalu masuk lagi memakai <strong>akun LMS Anda sendiri</strong>.
+            </p>
+          ) : (
+            <p className="mb-6" style={{ color: "var(--pp-muted)", fontSize: "14px", lineHeight: 1.55 }}>
+              Login Anda berhasil, tetapi akun ini belum diberi peran di PSAT.
+              Minta admin membuka <strong>LMS &rarr; Role Guru</strong>, kolom <strong>Soal PSAT</strong>,
+              lalu menyalakan <strong>Validasi</strong> (untuk validator soal). Pastikan juga status
+              Anda masih <strong>aktif</strong>. Sesudah itu masuk lagi.
+              <br />
+              <span style={{ fontSize: "13px" }}>
+                Izin <strong>Tulis</strong> tidak dinyalakan dari sana — ia menyala sendiri saat Anda
+                ditunjuk sebagai penulis soal di halaman Patokan.
+              </span>
+            </p>
+          )}
           <button
             onClick={handleLogout}
             style={{
