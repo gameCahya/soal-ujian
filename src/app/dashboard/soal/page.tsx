@@ -324,17 +324,27 @@ export default function SoalPage() {
     return { done, total }
   }
 
-  const isAllTargetMet = () => {
-    if (matrixData.length === 0) return false
+  /**
+   * Slot yang belum memenuhi target bank, lengkap dengan kekurangannya.
+   *
+   * Dulu ini cuma boolean, dan tombol "Kirim ke Validator" mati tanpa satu pun
+   * penjelasan slot mana yang kurang — guru hanya melihat tombol abu-abu.
+   */
+  const slotKurang = (): { bab: string; tipe: string; kesulitan: string; kurang: number }[] => {
+    const hasil: { bab: string; tipe: string; kesulitan: string; kurang: number }[] = []
     for (const bab of matrixData) {
       for (const tipe of TIPE_OPTIONS) {
         for (const kesulitan of KESULITAN_OPTIONS) {
-          if (getSoalCount(bab.bab_id_text, tipe, kesulitan) < getTargetBank(bab.bab_id_text, tipe, kesulitan)) return false
+          const target = getTargetBank(bab.bab_id_text, tipe, kesulitan)
+          const ada = getSoalCount(bab.bab_id_text, tipe, kesulitan)
+          if (ada < target) hasil.push({ bab: bab.bab_id_text, tipe, kesulitan, kurang: target - ada })
         }
       }
     }
-    return true
+    return hasil
   }
+
+  const isAllTargetMet = () => matrixData.length > 0 && slotKurang().length === 0
 
   const totalTarget = matrixData.reduce((sum, bab) =>
     sum + TIPE_OPTIONS.reduce((s2, t) =>
@@ -583,7 +593,20 @@ export default function SoalPage() {
 
   const handleDeleteSoal = async (soalId: string) => {
     if (!confirm("Yakin hapus soal ini?")) return
-    await supabase.from("bank_soal").delete().eq("id", soalId)
+    // .select() wajib. Policy soal_delete_own_draft hanya mengizinkan status
+    // 'draft', sedangkan tombol hapus juga aktif untuk soal 'needs_revision' —
+    // tanpa pemeriksaan ini soal lenyap dari layar, tidak terhapus di basis
+    // data, lalu muncul lagi begitu halaman dimuat ulang.
+    const { data: terhapus, error } = await supabase
+      .from("bank_soal").delete().eq("id", soalId).select("id")
+    if (error) {
+      setToast({ message: "Gagal menghapus: " + error.message, type: "error" })
+      return
+    }
+    if (!terhapus || terhapus.length === 0) {
+      setToast({ message: "Soal tidak bisa dihapus — hanya soal berstatus Draft yang boleh dihapus.", type: "error" })
+      return
+    }
     const updated = soalList.filter(s => s.id !== soalId)
     setSoalList(updated)
     const stats: Record<string, number> = {}
@@ -598,18 +621,28 @@ export default function SoalPage() {
     if (!user) return
     if (!confirm("Kirim semua soal ke validator? Setelah dikirim, soal tidak bisa diedit.")) return
     setSaving(true)
-    const { error } = await supabase
+    // .select() wajib: penolakan RLS mengembalikan 0 baris TANPA galat, jadi
+    // "tidak ada error" bukan bukti apa pun terkirim. Tanpa ini layar berkata
+    // "berhasil dikirim" untuk pengiriman yang tidak pernah terjadi.
+    const { data: terkirim, error } = await supabase
       .from("bank_soal")
       .update({ status: "submitted", updated_at: new Date().toISOString() })
       .eq("guru_id", user.id)
       .eq("ujian_id", tugasAktif?.ujian_id ?? "")
       .in("status", ["draft", "needs_revision"])
+      .select("id")
     setSaving(false)
     if (error) {
       setToast({ message: "Error: " + error.message, type: "error" })
+    } else if (!terkirim || terkirim.length === 0) {
+      setToast({ message: "Tidak ada soal yang terkirim. Muat ulang halaman lalu coba lagi.", type: "error" })
     } else {
-      setToast({ message: "Soal berhasil dikirim ke validator!", type: "success" })
-      setSoalList(soalList.map(s => ({ ...s, status: "submitted" })))
+      const idTerkirim = new Set(terkirim.map(r => r.id))
+      setToast({ message: `${terkirim.length} soal berhasil dikirim ke validator!`, type: "success" })
+      // Hanya soal yang BENAR-BENAR berubah yang ditandai. Versi lama menandai
+      // seluruh daftar, sehingga soal yang sudah `approved` ikut tampak
+      // "Dikirim" sampai halaman dimuat ulang.
+      setSoalList(soalList.map(s => (idTerkirim.has(s.id) ? { ...s, status: "submitted" } : s)))
 
       supabase.auth.getSession().then(({ data: { session } }) => {
         if (!session || !selectedMapelId) return
@@ -895,6 +928,7 @@ export default function SoalPage() {
   }
 
   const allMet = isAllTargetMet()
+  const kurangList = allMet ? [] : slotKurang()
   const progressPct = totalTarget > 0 ? Math.min(100, Math.round((totalDibuat / totalTarget) * 100)) : 0
   const activeBabSoal = activeBab ? soalList.filter(s => s.bab_id_text === activeBab) : []
   const filteredSoal = activeBabSoal
@@ -1004,9 +1038,24 @@ export default function SoalPage() {
                 cursor: allMet ? "pointer" : "not-allowed",
                 display: "flex", alignItems: "center", gap: 6,
               }}
+              // Tombol yang mati harus bisa menjelaskan dirinya. Tanpa ini guru
+              // hanya melihat tombol abu-abu dan tidak tahu slot mana yang kurang.
+              title={
+                allMet
+                  ? "Kirim seluruh soal ujian ini ke validator"
+                  : matrixData.length === 0
+                    ? "Matriks belum dimuat."
+                    : `Belum bisa dikirim — kurang ${kurangList.reduce((n, k) => n + k.kurang, 0)} soal di ${kurangList.length} slot:\n` +
+                      kurangList.slice(0, 12).map(k => `• ${k.bab} · ${TIPE_LABELS[k.tipe] ?? k.tipe} · ${KESULITAN_LABELS[k.kesulitan] ?? k.kesulitan}: kurang ${k.kurang}`).join("\n") +
+                      (kurangList.length > 12 ? `\n… dan ${kurangList.length - 12} slot lain` : "")
+              }
             >
               {allMet && <Check className="w-3.5 h-3.5" />}
-              {saving ? "Mengirim..." : "Kirim ke Validator"}
+              {saving
+                ? "Mengirim..."
+                : allMet
+                  ? "Kirim ke Validator"
+                  : `Kurang ${kurangList.reduce((n, k) => n + k.kurang, 0)} soal`}
             </button>
           </div>
         </div>

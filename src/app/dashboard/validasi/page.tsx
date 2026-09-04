@@ -7,7 +7,7 @@ import Toast from "@/components/Toast"
 import { CheckCircle, Clock, AlertCircle, ArrowLeft, Pencil, Trash2, Check, X, Highlighter } from "lucide-react"
 import ThemeToggle from "@/components/ThemeToggle"
 import DownloadDropdown from "@/components/DownloadDropdown"
-import { ambilUjianPsat, labelUjian, pesanError, KESULITAN_LABELS, KESULITAN_LABELS_PANJANG, type UjianPsat } from "@/lib/ujian"
+import { ambilAntreanValidasi, labelUjian, pesanError, KESULITAN_LABELS, KESULITAN_LABELS_PANJANG } from "@/lib/ujian"
 
 /** Ujian yang dibuka dari dashboard, dioper lewat localStorage. */
 const VALIDASI_UJIAN_KEY = "psat_validasi_ujian_id"
@@ -17,6 +17,9 @@ interface UjianSummary {
   mapel_id: string | null
   nama: string        // nama mata pelajaran
   level: string | null
+  /** Ditampilkan di kartu: dua ujian mapel+kelas sama dari dua tahun tampak identik tanpa ini. */
+  tahun_ajaran: string | null
+  semester: number | null
   submitted: number
   needs_revision: number
   approved: number
@@ -149,35 +152,25 @@ export default function ValidasiPage() {
         setValidatorMapelIds(assignedMapelIds)
       }
 
-      // Antrean validasi kini per ujian (mapel × kelas), bukan per mapel —
-      // dari sinilah kelas soal berasal sekarang.
-      let ujianRows: UjianPsat[] = []
+      // Antrean dihitung di database (psat.get_antrean_validasi): hitungan per
+      // (ujian, status) untuk event AKTIF saja, cakupan mapel validator sudah
+      // disaring di SQL. Versi lama menarik SELURUH baris bank_soal lalu
+      // menghitung di sini — 1.873 baris per 4 Sep 2026, menembus plafon
+      // PostgREST 1000 tanpa ORDER BY, sehingga ujian yang soalnya sudah
+      // dikirim bisa hilang dari antrean tanpa gejala apa pun.
       try {
-        ujianRows = await ambilUjianPsat()
-      } catch (e) {
-        setToast({ message: "Gagal memuat daftar ujian: " + pesanError(e), type: "error" })
-      }
-
-      const { data: soalCounts } = await supabase
-        .from("bank_soal")
-        .select("ujian_id, status")
-        .in("status", ["submitted", "needs_revision", "approved"])
-
-      if (soalCounts) {
-        let summaries: UjianSummary[] = ujianRows.map(u => ({
-          id: u.ujian_id,
-          mapel_id: u.psat_mapel_id,
-          nama: u.mapel_nama || u.ujian_nama,
-          level: u.level,
-          submitted: soalCounts.filter(s => s.ujian_id === u.ujian_id && s.status === "submitted").length,
-          needs_revision: soalCounts.filter(s => s.ujian_id === u.ujian_id && s.status === "needs_revision").length,
-          approved: soalCounts.filter(s => s.ujian_id === u.ujian_id && s.status === "approved").length,
-        })).filter(m => m.submitted + m.needs_revision + m.approved > 0)
-
-        // Penugasan validator masih per mata pelajaran
-        if (assignedMapelIds !== null) {
-          summaries = summaries.filter(m => m.mapel_id && assignedMapelIds!.includes(m.mapel_id))
-        }
+        const antrean = await ambilAntreanValidasi()
+        const summaries: UjianSummary[] = antrean.map(a => ({
+          id: a.ujian_id,
+          mapel_id: a.mapel_id,
+          nama: a.mapel_nama || a.ujian_nama,
+          level: a.level,
+          tahun_ajaran: a.tahun_ajaran,
+          semester: a.semester,
+          submitted: Number(a.submitted) || 0,
+          needs_revision: Number(a.needs_revision) || 0,
+          approved: Number(a.approved) || 0,
+        }))
 
         setUjianSummaries(summaries)
 
@@ -187,6 +180,10 @@ export default function ValidasiPage() {
           const found = summaries.find(m => m.id === savedUjianId)
           if (found) openUjian(found)
         }
+      } catch (e) {
+        // Dulu galat di sini tidak pernah diambil, jadi kegagalan kueri
+        // menyamar jadi layar "Belum ada soal yang disubmit".
+        setToast({ message: "Gagal memuat antrean validasi: " + pesanError(e), type: "error" })
       }
 
       setLoading(false)
@@ -238,26 +235,39 @@ export default function ValidasiPage() {
     setSaving(true)
     const notes = revisionNotes[soalId] || ""
     const validatorName = user?.nama || "Validator"
-    const fullNotes = newStatus === "approved"
+    const disetujui = newStatus === "approved"
+    const fullNotes = disetujui
       ? `[${validatorName}] Approved`
       : notes ? `[${validatorName}] ${notes}` : `[${validatorName}] Review`
 
     const currentSoal = soalList.find(s => s.id === soalId)
     const newHistory = [...(currentSoal?.revision_history || []), fullNotes]
 
-    const { error } = await supabase
+    // Approve MENGOSONGKAN revision_notes, tidak menulisinya. Versi lama
+    // menyimpan "[Nama] Approved" ke sana, sehingga soal yang DISETUJUI tetap
+    // memunculkan kotak "Catatan revisi" di layar guru dan tak pernah bersih.
+    // Jejaknya tetap ada di revision_history.
+    const notesTersimpan = disetujui ? null : fullNotes
+
+    // .select() wajib: penolakan RLS = 0 baris TANPA galat. Tanpa ini layar
+    // berkata "Status diperbarui!" lalu state lokal ikut diperbarui, sehingga
+    // tampilannya berbohong secara konsisten sampai halaman dimuat ulang.
+    const { data: diubah, error } = await supabase
       .from("bank_soal")
-      .update({ status: newStatus, revision_notes: fullNotes, revision_history: newHistory, updated_at: new Date().toISOString() })
+      .update({ status: newStatus, revision_notes: notesTersimpan, revision_history: newHistory, updated_at: new Date().toISOString() })
       .eq("id", soalId)
+      .select("id")
 
     setSaving(false)
 
     if (error) {
       setToast({ message: "Error: " + error.message, type: "error" })
+    } else if (!diubah || diubah.length === 0) {
+      setToast({ message: "Status tidak tersimpan — Anda mungkin tidak berhak atas soal ini. Muat ulang halaman.", type: "error" })
     } else {
       setToast({ message: "Status diperbarui!", type: "success" })
       setSoalList(prev => prev.map(s =>
-        s.id === soalId ? { ...s, status: newStatus, revision_notes: fullNotes, revision_history: newHistory } : s
+        s.id === soalId ? { ...s, status: newStatus, revision_notes: notesTersimpan, revision_history: newHistory } : s
       ))
       setUjianSummaries(prev => prev.map(m => {
         if (m.id !== selectedUjian?.id) return m
@@ -560,6 +570,14 @@ export default function ValidasiPage() {
                         </span>
                       )}
                     </div>
+                    {/* Tahun ajaran ditampilkan supaya dua kartu mapel+kelas sama
+                        dari dua tahun tidak tampak identik — antrean dulu memuat
+                        22 ujian tahun lalu tanpa satu pun penanda. */}
+                    {m.tahun_ajaran && (
+                      <div className="text-xs mb-2" style={{ color: "var(--pp-muted)" }}>
+                        {m.tahun_ajaran}{m.semester ? ` · Semester ${m.semester}` : ""}
+                      </div>
+                    )}
                     <div className="flex flex-wrap gap-1.5">
                       {m.submitted > 0 && (
                         <button

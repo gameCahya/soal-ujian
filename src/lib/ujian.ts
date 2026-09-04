@@ -274,6 +274,33 @@ export interface UjianPsat {
   jumlah_soal: number
 }
 
+/**
+ * Satu baris antrean validasi: HITUNGAN per ujian, bukan soalnya.
+ *
+ * Dulu layar validasi menarik seluruh baris bank_soal lalu menghitung sendiri
+ * di browser — 1.873 baris per 4 Sep 2026, menembus plafon PostgREST 1000
+ * tanpa ORDER BY, sehingga ujian yang soalnya sudah dikirim bisa lenyap dari
+ * antrean. RPC-nya juga sudah menyaring event aktif dan cakupan mapel.
+ */
+export interface AntreanValidasi {
+  ujian_id: string
+  ujian_nama: string
+  mapel_id: string | null
+  mapel_nama: string | null
+  level: string | null
+  tahun_ajaran: string | null
+  semester: number | null
+  submitted: number
+  needs_revision: number
+  approved: number
+}
+
+export async function ambilAntreanValidasi(): Promise<AntreanValidasi[]> {
+  const { data, error } = await supabase.rpc("get_antrean_validasi")
+  if (error) throw error
+  return (data as AntreanValidasi[]) ?? []
+}
+
 export async function ambilUjianPsat(): Promise<UjianPsat[]> {
   const { data, error } = await supabase.rpc("get_ujian_psat")
   if (error) throw error
