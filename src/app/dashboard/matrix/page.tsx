@@ -97,7 +97,7 @@ export default function MatrixPage() {
           element: "#tour-bab-pills",
           popover: {
             title: "Daftar Bab",
-            description: "Setiap pill adalah satu bab. Klik pill untuk rename nama bab. Tombol × untuk menghapus bab yang belum disubmit.",
+            description: "Setiap pill adalah satu bab. Klik pill untuk MEMINDAH baris ini ke bab lain — nama bab sendiri diubah di LMS, dan perubahannya otomatis menyusul ke sini. Tombol × untuk menghapus bab yang belum disubmit.",
           },
         },
         {
@@ -362,16 +362,19 @@ export default function MatrixPage() {
     setMatrixDataSync(newData)
   }
 
-  const handleRenameBab = async (oldId: string) => {
-    if (!editBabName.trim() || !user || babs.find(b => b.id === oldId)?.is_submitted) {
+  const handleRenameBab = async (oldId: string, namaBaru?: string) => {
+    // namaBaru dikirim langsung oleh <select>: setEditBabName belum tentu
+    // terbaca di render yang sama, dan membaca state basi akan memindahkan
+    // baris ke bab yang salah tanpa gejala apa pun.
+    const diminta = (namaBaru ?? editBabName).trim()
+    if (!diminta || !user || babs.find(b => b.id === oldId)?.is_submitted) {
       setEditingBab(null); return
     }
     // Nama harus tetap cocok dengan sebuah bab di LMS. Dulu bebas, dan itu
     // memutus dua hal sekaligus: baris ini tak bisa dipetakan ke bab_pelajaran,
     // dan soal yang sudah ditulis tetap memakai nama LAMA di
     // psat.bank_soal.bab_id_text karena rename tidak pernah menyentuhnya.
-    const nama = editBabName.trim()
-    const cocok = babSaran.find(b => b.nama_bab.toLowerCase() === nama.toLowerCase())
+    const cocok = babSaran.find(b => b.nama_bab.toLowerCase() === diminta.toLowerCase())
     if (!cocok) {
       showToast("Nama itu tidak ada di daftar bab LMS. Pilih yang tersedia.", "error")
       return
@@ -807,14 +810,12 @@ export default function MatrixPage() {
             {babs.map(bab => (
               <div key={bab.id} className="flex items-center gap-1">
                 {!bab.is_submitted && editingBab === bab.id ? (
-                  <input
+                  <select
                     autoFocus
-                    type="text"
                     value={editBabName}
-                    onChange={e => setEditBabName(e.target.value)}
-                    onKeyDown={e => e.key === "Enter" && handleRenameBab(bab.id)}
-                    onBlur={() => handleRenameBab(bab.id)}
-                    className="px-3 py-1.5 text-sm w-32 font-medium"
+                    onChange={e => { setEditBabName(e.target.value); handleRenameBab(bab.id, e.target.value) }}
+                    onBlur={() => setEditingBab(null)}
+                    className="px-3 py-1.5 text-sm font-medium"
                     style={{
                       border: "1.5px solid var(--pp-primary)",
                       borderRadius: 20,
@@ -823,7 +824,11 @@ export default function MatrixPage() {
                       outline: "none",
                       boxShadow: "2px 2px 0 0 var(--pp-primary)",
                     }}
-                  />
+                  >
+                    {babSaran.map(b => (
+                      <option key={b.bab_id} value={b.nama_bab}>{b.nama_bab}</option>
+                    ))}
+                  </select>
                 ) : (
                   <button
                     className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium transition-transform"
