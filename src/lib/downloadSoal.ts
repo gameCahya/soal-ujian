@@ -1,3 +1,4 @@
+import { latexKeTeks } from './latexText'
 export interface SoalDownload {
   id: string
   pertanyaan: string
@@ -36,13 +37,24 @@ export interface PdfMeta {
   matrixData?: { bab_id_text: string; data: Record<string, number> }[]
 }
 
+export { latexKeTeks }
+
 export function htmlToPlainText(html: string): string {
   const doc = new DOMParser().parseFromString(html, 'text/html')
+
+  // Rumus bentuk baru: node atom ber-data-latex, tanpa teks anak.
+  doc.querySelectorAll('span[data-latex]').forEach(el => {
+    el.replaceWith(latexKeTeks(el.getAttribute('data-latex') ?? ''))
+  })
+
+  // Bentuk LAMA. Dipertahankan supaya soal yang ditulis sebelum penyatuan
+  // format tetap terbaca di PDF, walau editornya sudah tidak memproduksinya.
   doc.querySelectorAll('.math-frac').forEach(el => {
     const num = el.querySelector('.math-num')?.textContent ?? ''
     const den = el.querySelector('.math-den')?.textContent ?? ''
     el.replaceWith(`[${num}/${den}]`)
   })
+
   return (doc.body.textContent ?? '').replace(/\s+/g, ' ').trim()
 }
 

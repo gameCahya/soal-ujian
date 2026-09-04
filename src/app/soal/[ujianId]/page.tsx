@@ -1,4 +1,5 @@
 import { supabase } from "@/lib/supabase"
+import { MathHtml } from "@/components/MathHtml"
 import { ArrowLeft, BookOpen, FileQuestion } from "lucide-react"
 import { labelUjian, KESULITAN_LABELS, KESULITAN_LABELS_PANJANG, type UjianPsat } from "@/lib/ujian"
 
@@ -110,10 +111,10 @@ export default async function PublikSoalPage({ params }: { params: Promise<{ uji
                           {idx + 1}.
                         </span>
                         <div className="flex-1 min-w-0">
-                          <div
+                          <MathHtml
                             className="text-sm mb-1.5 leading-relaxed rich-html"
                             style={{ color: "var(--color-foreground)" }}
-                            dangerouslySetInnerHTML={{ __html: s.pertanyaan }}
+                            html={s.pertanyaan}
                           />
                           <div className="flex items-center gap-1.5 flex-wrap">
                             <span

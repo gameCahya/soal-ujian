@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState } from 'react'
-import { useEditor, EditorContent, Node, mergeAttributes } from '@tiptap/react'
+import { useEditor, EditorContent } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import Image from '@tiptap/extension-image'
 import Placeholder from '@tiptap/extension-placeholder'
@@ -24,6 +24,26 @@ import {
   Plus, Trash2,
 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
+import { InlineMath } from '@/lib/extensions/InlineMath'
+
+/** Simbol yang paling sering dipakai soal SMP. Disisipkan sebagai teks biasa. */
+const SIMBOL_MATEMATIKA = [
+  { char: "\u00b1", nama: "Plus-minus" },
+  { char: "\u00d7", nama: "Kali" },
+  { char: "\u00f7", nama: "Bagi" },
+  { char: "\u03c0", nama: "Pi" },
+  { char: "\u2264", nama: "Kurang dari atau sama dengan" },
+  { char: "\u2265", nama: "Lebih dari atau sama dengan" },
+  { char: "\u2260", nama: "Tidak sama dengan" },
+  { char: "\u2248", nama: "Kira-kira sama dengan" },
+  { char: "\u00b0", nama: "Derajat" },
+  { char: "\u2220", nama: "Sudut" },
+  { char: "\u221e", nama: "Tak hingga" },
+  { char: "\u221a", nama: "Akar (simbol saja)" },
+  { char: "\u0394", nama: "Delta" },
+  { char: "\u2211", nama: "Sigma (jumlah)" },
+  { char: "\u22c5", nama: "Titik kali" },
+] as const
 
 interface RichTextEditorProps {
   content: string
@@ -31,30 +51,6 @@ interface RichTextEditorProps {
   placeholder?: string
   mini?: boolean
 }
-
-const MathFraction = Node.create({
-  name: 'mathFraction',
-  group: 'inline',
-  inline: true,
-  atom: true,
-  addAttributes() {
-    return {
-      num: { default: '' },
-      den: { default: '' },
-    }
-  },
-  parseHTML() {
-    return [{ tag: 'span[data-math-frac]' }]
-  },
-  renderHTML({ node, HTMLAttributes }) {
-    return [
-      'span',
-      mergeAttributes(HTMLAttributes, { 'data-math-frac': '', class: 'math-frac' }),
-      ['span', { class: 'math-num' }, node.attrs.num],
-      ['span', { class: 'math-den' }, node.attrs.den],
-    ]
-  },
-})
 
 async function calculateFileHash(file: File): Promise<string> {
   const buffer = await file.arrayBuffer()
@@ -123,6 +119,10 @@ export default function RichTextEditor({ content, onChange, placeholder = "Write
   const [showTablePopover, setShowTablePopover] = useState(false)
   const [fracNum, setFracNum] = useState("")
   const [fracDen, setFracDen] = useState("")
+  const [showAkarPopover, setShowAkarPopover] = useState(false)
+  const [showSimbolPopover, setShowSimbolPopover] = useState(false)
+  const [akarIsi, setAkarIsi] = useState("")
+  const [akarPangkat, setAkarPangkat] = useState("")
   const [tableRows, setTableRows] = useState(3)
   const [tableCols, setTableCols] = useState(3)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -133,7 +133,7 @@ export default function RichTextEditor({ content, onChange, placeholder = "Write
       StarterKit,
       Superscript,
       Subscript,
-      MathFraction,
+      InlineMath,
       ...(mini ? [] : [
         Image.configure({ inline: true, allowBase64: false }),
         TextAlign.configure({ types: ['heading', 'paragraph'] }),
@@ -193,15 +193,26 @@ export default function RichTextEditor({ content, onChange, placeholder = "Write
     setShowTablePopover(false)
   }
 
+  /** Sisipkan rumus sebagai node LaTeX. Guru tidak pernah melihat sintaksnya. */
+  const sisipkanRumus = (latex: string) => {
+    editor.chain().focus().insertContent({ type: 'inlineMath', attrs: { latex } }).run()
+  }
+
   const insertFraction = () => {
     if (!fracNum && !fracDen) return
-    editor.chain().focus().insertContent({
-      type: 'mathFraction',
-      attrs: { num: fracNum || '□', den: fracDen || '□' },
-    }).run()
+    sisipkanRumus(`\\frac{${fracNum || '\\square'}}{${fracDen || '\\square'}}`)
     setFracNum("")
     setFracDen("")
     setShowFracPopover(false)
+  }
+
+  const insertAkar = () => {
+    if (!akarIsi) return
+    // \sqrt[n]{x} untuk akar pangkat n, \sqrt{x} untuk akar kuadrat.
+    sisipkanRumus(akarPangkat ? `\\sqrt[${akarPangkat}]{${akarIsi}}` : `\\sqrt{${akarIsi}}`)
+    setAkarIsi("")
+    setAkarPangkat("")
+    setShowAkarPopover(false)
   }
 
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -263,6 +274,65 @@ export default function RichTextEditor({ content, onChange, placeholder = "Write
               style={{ backgroundColor: "var(--color-primary)", color: "#fff" }}>
               Sisipkan
             </button>
+          </div>
+        )}
+      </div>
+
+      {/* Akar — kotak isi wajib, pangkat opsional (kosong = akar kuadrat) */}
+      <div className="relative">
+        <button type="button" onClick={() => setShowAkarPopover(v => !v)}
+          className={`${btnBase} ${showAkarPopover ? btnActive : ""}`}
+          style={{ color: "var(--color-foreground)", fontWeight: 700, fontSize: "14px", lineHeight: 1 }}
+          title="Akar">
+          &#8730;
+        </button>
+        {showAkarPopover && (
+          <div
+            className="absolute top-full left-0 mt-1 z-20 p-3 rounded-md border shadow-lg flex flex-col gap-2"
+            style={{ backgroundColor: "var(--color-card)", borderColor: "var(--color-border)", minWidth: "170px" }}
+          >
+            <input autoFocus placeholder="Isi akar, mis. 2 atau x+1" value={akarIsi}
+              onChange={e => setAkarIsi(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && insertAkar()}
+              className="border rounded px-2 py-1 text-sm w-full"
+              style={{ borderColor: "var(--color-border)", backgroundColor: "var(--color-background)", color: "var(--color-foreground)" }}
+            />
+            <input placeholder="Pangkat akar (kosong = 2)" value={akarPangkat}
+              onChange={e => setAkarPangkat(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && insertAkar()}
+              className="border rounded px-2 py-1 text-sm w-full"
+              style={{ borderColor: "var(--color-border)", backgroundColor: "var(--color-background)", color: "var(--color-foreground)" }}
+            />
+            <button onClick={insertAkar} className="text-xs px-2 py-1 rounded text-center"
+              style={{ backgroundColor: "var(--color-primary)", color: "#fff" }}>
+              Sisipkan
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Simbol umum — teks Unicode biasa, bukan node: selamat di setiap jalur
+          (layar siswa, PDF, Excel, Google Form) tanpa perender apa pun. */}
+      <div className="relative">
+        <button type="button" onClick={() => setShowSimbolPopover(v => !v)}
+          className={`${btnBase} ${showSimbolPopover ? btnActive : ""}`}
+          style={{ color: "var(--color-foreground)", fontWeight: 700, fontSize: "13px", lineHeight: 1 }}
+          title="Simbol matematika">
+          &#960;
+        </button>
+        {showSimbolPopover && (
+          <div
+            className="absolute top-full left-0 mt-1 z-20 p-2 rounded-md border shadow-lg grid grid-cols-5 gap-1"
+            style={{ backgroundColor: "var(--color-card)", borderColor: "var(--color-border)", width: "180px" }}
+          >
+            {SIMBOL_MATEMATIKA.map(sim => (
+              <button key={sim.char} type="button" title={sim.nama}
+                onClick={() => { editor.chain().focus().insertContent(sim.char).run(); setShowSimbolPopover(false) }}
+                className="rounded hover:bg-gray-100 dark:hover:bg-gray-800 py-1"
+                style={{ color: "var(--color-foreground)", fontSize: "15px", lineHeight: 1.3 }}>
+                {sim.char}
+              </button>
+            ))}
           </div>
         )}
       </div>

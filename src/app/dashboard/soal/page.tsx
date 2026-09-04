@@ -1,6 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
+import { MathHtml } from "@/components/MathHtml"
 import { useRouter } from "next/navigation"
 import { ArrowLeft, ChevronDown, ChevronUp, Plus, Pencil, Trash2, Check, CircleHelp, Upload, X, AlertCircle, FileJson, Highlighter } from "lucide-react"
 import ThemeToggle from "@/components/ThemeToggle"
@@ -1866,10 +1867,10 @@ export default function SoalPage() {
                           </div>
 
                           {/* Pertanyaan */}
-                          <div
+                          <MathHtml
                             className="text-sm rich-html"
                             style={{ color: "var(--pp-ink)" }}
-                            dangerouslySetInnerHTML={{ __html: applyHighlights(soal.pertanyaan, soal.highlights || [], "pertanyaan") }}
+                            html={applyHighlights(soal.pertanyaan, soal.highlights || [], "pertanyaan")}
                           />
 
                           {/* Pilihan jawaban */}
@@ -1895,10 +1896,10 @@ export default function SoalPage() {
                                     </span>
                                     <div className="flex-1 min-w-0">
                                       {p.teks && (
-                                        <div
+                                        <MathHtml
                                           className="rich-html"
                                           style={{ color: p.benar ? "#15803d" : "var(--pp-ink)" }}
-                                          dangerouslySetInnerHTML={{ __html: applyHighlights(p.teks, soal.highlights || [], field) }}
+                                          html={applyHighlights(p.teks, soal.highlights || [], field)}
                                         />
                                       )}
                                       {gambarUrl && (

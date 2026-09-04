@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import { MathHtml } from "@/components/MathHtml"
 import { useRouter } from "next/navigation"
 import { supabase } from "@/lib/supabase"
 import Toast from "@/components/Toast"
@@ -838,11 +839,11 @@ export default function ValidasiPage() {
                       </div>
 
                       {/* Pertanyaan */}
-                      <div
+                      <MathHtml
                         className="text-sm rich-html mb-3 select-text"
                         style={{ color: "var(--pp-ink)", paddingLeft: 4, cursor: "text" }}
                         onMouseUp={handleTextSelect(soal.id, "pertanyaan")}
-                        dangerouslySetInnerHTML={{ __html: applyHighlights(soal.pertanyaan, soal.highlights || [], "pertanyaan") }}
+                        html={applyHighlights(soal.pertanyaan, soal.highlights || [], "pertanyaan")}
                       />
 
                       {/* Pilihan */}
@@ -869,10 +870,11 @@ export default function ValidasiPage() {
                               </span>
                               <div className="flex-1 min-w-0" onMouseUp={handleTextSelect(soal.id, field)}>
                                 {p.teks && (
-                                  <span
+                                  <MathHtml
+                                    as="span"
                                     className="rich-html"
                                     style={{ color: p.benar ? "#15803d" : "var(--pp-ink)" }}
-                                    dangerouslySetInnerHTML={{ __html: applyHighlights(p.teks, soal.highlights || [], field) }}
+                                    html={applyHighlights(p.teks, soal.highlights || [], field)}
                                   />
                                 )}
                                 {gambarUrl && (
