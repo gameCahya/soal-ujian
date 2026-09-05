@@ -1164,6 +1164,51 @@ export default function SoalPage() {
             </div>
           </div>
 
+          {/* Soal yang babnya tidak ada di matriks.
+              Akordeon di bawah dibangun dari matrixData, jadi soal yang nama
+              babnya tak ada di sana tidak punya baris untuk ditampilkan — ia
+              lenyap tanpa jejak. Itu yang terjadi pada 94 soal, 5 Sep 2026.
+              Sejak trg_matriks_pindah_bawa_soal & trg_matriks_tolak_hapus_berisi
+              (20260905000003) keadaan ini tidak bisa lagi lahir dari halaman
+              Matrix, tapi panel ini tetap dipasang: kalau toh muncul lagi lewat
+              jalan yang belum terpikir, guru melihatnya — bukan mengira soalnya
+              terhapus. */}
+          {(() => {
+            const diMatriks = new Set(matrixData.map(b => (b.bab_id_text ?? "").trim().toLowerCase()))
+            const yatim = soalList.filter(s => !diMatriks.has((s.bab_id_text ?? "").trim().toLowerCase()))
+            if (yatim.length === 0) return null
+            const perBab = new Map<string, number>()
+            yatim.forEach(s => {
+              const nama = (s.bab_id_text ?? "").trim() || "(tanpa bab)"
+              perBab.set(nama, (perBab.get(nama) ?? 0) + 1)
+            })
+            return (
+              <div
+                style={{
+                  backgroundColor: "#FFF0E6",
+                  border: "1.5px solid var(--pp-ink)",
+                  borderRadius: 22,
+                  boxShadow: "4px 4px 0 0 var(--pp-ink)",
+                  padding: "14px 16px",
+                }}
+              >
+                <p className="text-sm font-semibold mb-1" style={{ color: "var(--pp-ink)" }}>
+                  {yatim.length} soal tidak muncul di daftar bawah
+                </p>
+                <p className="text-xs mb-2" style={{ color: "var(--pp-ink-2)", lineHeight: 1.5 }}>
+                  Soalnya <strong>tidak hilang</strong> — babnya saja yang tidak ada di matriks Anda,
+                  jadi tidak ada tempat untuk menampilkannya. Tambahkan bab berikut di halaman
+                  Matrix supaya soalnya muncul kembali:
+                </p>
+                <ul className="text-xs" style={{ color: "var(--pp-ink)" }}>
+                  {[...perBab.entries()].map(([nama, jml]) => (
+                    <li key={nama}>• <strong>{nama}</strong> — {jml} soal</li>
+                  ))}
+                </ul>
+              </div>
+            )
+          })()}
+
           {/* Bab navigation */}
           <div
             id="tour-bab-nav"
