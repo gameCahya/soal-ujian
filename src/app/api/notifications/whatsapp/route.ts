@@ -63,15 +63,32 @@ export async function POST(req: NextRequest) {
       const guruNama = guruProfile?.nama || "Guru"
       const mapelNama = (mapelData as any)?.nama || "mapel"
 
-      // Cari semua validator untuk mapel ini beserta nomor WA-nya
-      const { data: validatorRows } = await supabaseAdmin
-        .from("psat_validator_mapel")
-        .select("validator_id")
-        .eq("mapel_id", mapelId)
+      // Cari semua validator untuk mapel ini beserta nomor WA-nya.
+      //
+      // Cakupan KOSONG berarti semua mapel — cerminan dari
+      // psat.get_antrean_validasi sejak migrasi 20260905000001. Jadi yang
+      // dikabari = validator yang ditugaskan di mapel ini DITAMBAH validator
+      // yang belum punya penugasan sama sekali. Validator yang sengaja
+      // dibatasi ke mapel lain tetap tidak diganggu.
+      //
+      // Versi lama hanya melihat baris untuk mapel ini, sehingga saat
+      // psat_validator_mapel kosong — keadaannya sepanjang 4-5 Sep 2026 —
+      // tidak ada satu pun validator yang pernah diberi tahu ada soal masuk.
+      const [{ data: semuaValidator }, { data: semuaCakupan }] = await Promise.all([
+        supabaseAdmin.from("profiles").select("id").eq("role", "validator"),
+        supabaseAdmin.from("psat_validator_mapel").select("validator_id, mapel_id"),
+      ])
 
-      if (validatorRows && validatorRows.length > 0) {
-        const validatorIds = validatorRows.map((r: any) => r.validator_id)
+      const cakupan = (semuaCakupan ?? []) as { validator_id: string; mapel_id: string }[]
+      const punyaCakupan = new Set(cakupan.map(r => r.validator_id))
+      const ditugaskanDiMapelIni = new Set(
+        cakupan.filter(r => r.mapel_id === mapelId).map(r => r.validator_id),
+      )
+      const validatorIds = ((semuaValidator ?? []) as { id: string }[])
+        .map(v => v.id)
+        .filter(id => ditugaskanDiMapelIni.has(id) || !punyaCakupan.has(id))
 
+      if (validatorIds.length > 0) {
         const { data: validatorContacts } = await supabaseAdmin
           .from("psat_guru_data")
           .select("profile_id, whatsapp")
