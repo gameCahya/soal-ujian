@@ -350,8 +350,40 @@ export default function MatrixPage() {
     }
   }
 
+  /**
+   * Berapa soal yang sudah ditulis di bawah satu bab, untuk ujian yang aktif.
+   *
+   * Mengembalikan null bila tidak bisa dipastikan — dan pemanggilnya WAJIB
+   * berhenti, bukan menganggapnya nol. Menganggap "tidak tahu" sama dengan
+   * "kosong" persis bagaimana 94 soal sempat ditinggalkan tanpa ada yang tahu.
+   */
+  const jumlahSoalBab = async (namaBab: string): Promise<number | null> => {
+    if (!user || !tugasAktif) return null
+    const { count, error } = await supabase
+      .from("bank_soal")
+      .select("id", { count: "exact", head: true })
+      .eq("guru_id", user.id)
+      .eq("ujian_id", tugasAktif.ujian_id)
+      .eq("bab_id_text", namaBab)
+    if (error) return null
+    return count ?? 0
+  }
+
   const handleDeleteBab = async (babId: string) => {
     if (babs.find(b => b.id === babId)?.is_submitted) return
+
+    // Database menolak ini sejak 20260905000003 (trg_matriks_tolak_hapus_berisi).
+    // Pemeriksaan di sini bukan penjaga — ia hanya supaya guru mendapat kalimat
+    // yang bisa ditindaklanjuti, bukan galat mentah setelah menekan tombol.
+    const jml = await jumlahSoalBab(babId)
+    if (jml === null) {
+      showToast("Tidak bisa memeriksa isi bab ini. Coba lagi sebentar.", "error")
+      return
+    }
+    if (jml > 0) {
+      showToast(`Bab "${babId}" berisi ${jml} soal. Pindahkan bab ini ke bab lain (soalnya ikut) atau hapus soalnya dulu.`, "error")
+      return
+    }
     if (!confirm(`Hapus "${babId}"? Data matrix akan hilang.`)) return
     const { error } = await supabase.from("psat_matrix_input").delete()
       .eq("profile_id", user.id).eq("ujian_id", tugasAktif?.ujian_id ?? "").eq("bab_id_text", babId)
@@ -379,9 +411,28 @@ export default function MatrixPage() {
       showToast("Nama itu tidak ada di daftar bab LMS. Pilih yang tersedia.", "error")
       return
     }
-    await supabase.from("psat_matrix_input")
+    // Soal yang sudah ditulis IKUT pindah — dikerjakan trigger
+    // trg_matriks_pindah_bawa_soal (20260905000003), jadi kedua tulisan itu
+    // satu transaksi dan tidak bisa setengah jadi. Yang dikerjakan di sini
+    // hanya memberi tahu: perpindahan diam-diam justru bagaimana 94 soal
+    // sempat lenyap dari layar penulisnya, 5 Sep 2026.
+    const ikut = await jumlahSoalBab(oldId)
+    if (ikut === null) {
+      showToast("Tidak bisa memeriksa isi bab ini. Coba lagi sebentar.", "error")
+      return
+    }
+    if (ikut > 0 && !confirm(
+      `Bab "${oldId}" berisi ${ikut} soal.\n\nSoal itu akan ikut pindah ke "${cocok.nama_bab}". Lanjutkan?`
+    )) return
+
+    const { error: errPindah } = await supabase.from("psat_matrix_input")
       .update({ bab_id_text: cocok.nama_bab, bab_id: cocok.bab_id, updated_at: new Date().toISOString() })
       .eq("profile_id", user.id).eq("ujian_id", tugasAktif?.ujian_id ?? "").eq("bab_id_text", oldId)
+    if (errPindah) {
+      showToast("Gagal memindahkan bab: " + errPindah.message, "error")
+      return
+    }
+    if (ikut > 0) showToast(`${ikut} soal ikut pindah ke "${cocok.nama_bab}"`, "success")
     const newData = { ...matrixDataRef.current }
     newData[cocok.nama_bab] = newData[oldId]
     delete newData[oldId]
