@@ -169,7 +169,11 @@ export default function DashboardPage() {
           mapelDariUjian[u.ujian_id] = u.psat_mapel_id
         })
       }
-      if (validatorMapelIds !== null) {
+      // Cakupan KOSONG berarti semua mapel, bukan nol — sejalan dengan
+      // psat.get_antrean_validasi sejak migrasi 20260905000001. Tanpa syarat
+      // length > 0, penyaring ini menghapus seluruh hitungan dan dashboard
+      // menampilkan nol padahal halaman Validasi memperlihatkan antrean penuh.
+      if (validatorMapelIds !== null && validatorMapelIds.length > 0) {
         Object.keys(counts).forEach(ujianId => {
           const mapelId = mapelDariUjian[ujianId]
           if (!mapelId || !validatorMapelIds!.includes(mapelId)) delete counts[ujianId]

@@ -502,23 +502,32 @@ export default function ValidasiPage() {
 
         {/* Mapel grid */}
         <div>
-          <div className="text-xs font-bold uppercase mb-3" style={{ color: "var(--pp-muted)", letterSpacing: "0.12em" }}>
-            Pilih Mata Pelajaran
+          <div className="flex items-center gap-2 mb-3">
+            <div className="text-xs font-bold uppercase" style={{ color: "var(--pp-muted)", letterSpacing: "0.12em" }}>
+              Pilih Mata Pelajaran
+            </div>
+            {/* Cakupan kosong berarti SEMUA mapel, bukan nol (migrasi
+                20260905000001). Dulu layar ini berhenti di "Belum ada mata
+                pelajaran yang ditugaskan" — benar secara harfiah, tapi
+                validator satu-satunya jadi menganggur sementara 420 soal
+                menunggu. Keadaan "belum dibatasi" tetap ditulis supaya
+                bedanya dengan cakupan yang sengaja dipilih tidak hilang. */}
+            {validatorMapelIds !== null && validatorMapelIds.length === 0 && (
+              <span
+                className="px-2 py-0.5 rounded-full font-semibold"
+                style={{
+                  backgroundColor: "var(--pp-mint)",
+                  color: "#15803d",
+                  border: "1px solid var(--pp-ink)",
+                  fontSize: 10,
+                }}
+              >
+                Semua mapel — cakupan belum dibatasi
+              </span>
+            )}
           </div>
 
-          {validatorMapelIds !== null && validatorMapelIds.length === 0 ? (
-            <div
-              style={{
-                border: "1.5px dashed var(--pp-ink)",
-                borderRadius: 22,
-                padding: "48px 24px",
-                textAlign: "center",
-                color: "var(--pp-muted)",
-              }}
-            >
-              Belum ada mata pelajaran yang ditugaskan. Hubungi admin.
-            </div>
-          ) : ujianSummaries.length === 0 ? (
+          {ujianSummaries.length === 0 ? (
             <div
               style={{
                 border: "1.5px dashed var(--pp-ink)",
