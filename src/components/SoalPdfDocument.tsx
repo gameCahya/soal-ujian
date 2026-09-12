@@ -1,5 +1,38 @@
-import { Document, Page, Text, View, Image, StyleSheet } from '@react-pdf/renderer'
+import { Document, Page, Text, View, Image, StyleSheet, Font } from '@react-pdf/renderer'
 import type { SoalProcessed, PdfMeta } from '@/lib/downloadSoal'
+
+// Font Arab (Amiri, Naskh, lisensi OFL). Font bawaan react-pdf (Helvetica)
+// tidak punya SATU pun glyph Arab, jadi teks Arab tampil sebagai "kotak-kotak".
+// react-pdf 4.x TIDAK punya fallback per-glyph: apa pun yang tak ada di font
+// terpilih jadi kotak, tanpa substitusi. Maka teks Arab HARUS dirender dengan
+// font yang memang punya glyph-nya. Amiri juga membawa tabel GSUB/GPOS sehingga
+// huruf Arab tersambung (init/medi/fina) dengan benar, bukan terpisah-pisah.
+Font.register({
+  family: 'Amiri',
+  fonts: [
+    { src: '/fonts/Amiri-Regular.ttf' },
+    { src: '/fonts/Amiri-Bold.ttf', fontWeight: 'bold' },
+  ],
+})
+
+// Blok Unicode aksara Arab (dasar, suplemen, extended-A, presentation forms A/B).
+const ARABIC_RANGES = '\\u0600-\\u06FF\\u0750-\\u077F\\u08A0-\\u08FF\\uFB50-\\uFDFF\\uFE70-\\uFEFF'
+const HAS_ARABIC = new RegExp(`[${ARABIC_RANGES}]`)
+const SPLIT_ARABIC = new RegExp(`([${ARABIC_RANGES}]+)`)
+
+// Pecah string jadi run Latin vs run Arab; run Arab dibungkus <Text> ber-font
+// Amiri, sisanya mewarisi font induk (Helvetica) sehingga tampilan Latin tak
+// berubah. String tanpa Arab dikembalikan apa adanya (murah). Aman untuk teks
+// campuran seperti: Arti kata كتاب adalah ...
+function withArabic(text: string | null | undefined) {
+  if (!text) return text ?? ''
+  if (!HAS_ARABIC.test(text)) return text
+  return text.split(SPLIT_ARABIC).map((part, i) =>
+    part && HAS_ARABIC.test(part)
+      ? <Text key={i} style={{ fontFamily: 'Amiri' }}>{part}</Text>
+      : part
+  )
+}
 
 interface Props {
   soalList: SoalProcessed[]
@@ -130,7 +163,7 @@ function MatrixTable({ matrixData }: { matrixData: NonNullable<PdfMeta['matrixDa
             key={bab.bab_id_text}
             style={[styles.matrixRow, idx === matrixData.length - 1 ? styles.matrixLastRow : {}]}
           >
-            <Text style={styles.matrixBabCell}>{bab.bab_id_text}</Text>
+            <Text style={styles.matrixBabCell}>{withArabic(bab.bab_id_text)}</Text>
             {activeColumns.map(col => {
               const val = getVal(bab, col)
               return (
@@ -158,10 +191,10 @@ export default function SoalPdfDocument({ soalList, meta }: Props) {
     <Document>
       <Page size="A4" style={styles.page}>
         <View style={styles.header}>
-          <Text style={styles.title}>{meta.judul}</Text>
+          <Text style={styles.title}>{withArabic(meta.judul)}</Text>
           {(meta.namaGuru || meta.kelas) && (
             <Text style={styles.subtitleGuru}>
-              {[meta.namaGuru, meta.kelas].filter(Boolean).join(' · ')}
+              {withArabic([meta.namaGuru, meta.kelas].filter(Boolean).join(' · '))}
             </Text>
           )}
           <Text style={styles.subtitle}>
@@ -179,11 +212,11 @@ export default function SoalPdfDocument({ soalList, meta }: Props) {
               <Text style={styles.nomor}>{idx + 1}.</Text>
               <Text style={TIPE_STYLE[soal.tipe] ?? styles.badgeNeutral}>{TIPE_LABEL[soal.tipe] ?? soal.tipe}</Text>
               <Text style={KESULITAN_STYLE[soal.tingkat_kesulitan] ?? styles.badgeNeutral}>{KESULITAN_LABEL[soal.tingkat_kesulitan] ?? soal.tingkat_kesulitan}</Text>
-              <Text style={styles.badgeNeutral}>Bab: {soal.bab_id_text}</Text>
+              <Text style={styles.badgeNeutral}>Bab: {withArabic(soal.bab_id_text)}</Text>
               <Text style={styles.badgeNeutral}>Bobot: {soal.bobot}</Text>
             </View>
 
-            <Text style={styles.pertanyaan}>{soal.pertanyaan_text}</Text>
+            <Text style={styles.pertanyaan}>{withArabic(soal.pertanyaan_text)}</Text>
 
             {soal.pertanyaan_images.map((src, i) => (
               <Image key={i} src={src} style={styles.gambar} />
@@ -196,7 +229,7 @@ export default function SoalPdfDocument({ soalList, meta }: Props) {
                     {p.benar ? '✓' : '-'} {LABELS[p.id]}.
                   </Text>
                   <Text style={[styles.pilihanTeks, p.benar ? styles.benar : styles.salah]}>
-                    {p.teks_plain}
+                    {withArabic(p.teks_plain)}
                   </Text>
                 </View>
                 {p.gambar_url && (
